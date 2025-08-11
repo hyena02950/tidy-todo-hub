@@ -1,74 +1,114 @@
 
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
+import { VendorDashboardPage } from "@/pages/VendorDashboardPage";
+import { AdminDashboard } from "@/pages/AdminDashboard";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Building2, Users, FileText, TrendingUp } from "lucide-react";
 
-export default function Index() {
+const Index = () => {
   const { user, loading: authLoading } = useAuth();
-  const { loading: roleLoading, roles, isVendorUser, isElikaUser } = useUserRole();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    // Redirect unauthenticated users to login
-    if (!authLoading && !user) {
-      navigate("/login");
-      return;
-    }
-
-    // Once authenticated and roles are loaded
-    if (!authLoading && !roleLoading && user && roles.length > 0) {
-      // Redirect based on user role
-      if (isElikaUser) {
-        navigate("/admin");
-      } else if (isVendorUser) {
-        navigate("/dashboard");
-      } else {
-        navigate("/dashboard");
-      }
-    }
-  }, [user, authLoading, roleLoading, roles, isVendorUser, isElikaUser, navigate]);
+  const { isVendorUser, isElikaUser, loading: roleLoading } = useUserRole();
 
   if (authLoading || roleLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">Loading...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     );
   }
 
-  // Show access pending message for users without roles (shouldn't happen now)
-  if (user && roles.length === 0) {
+  if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="max-w-md mx-auto text-center p-8">
-          <div className="mb-6">
-            <div className="w-16 h-16 mx-auto mb-4 bg-yellow-100 rounded-full flex items-center justify-center">
-              <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.314 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">Access Pending</h1>
-            <p className="text-muted-foreground mb-6">
-              Your account has been created successfully. Please wait for an administrator to assign you the appropriate role and permissions.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Contact your system administrator if you believe this is an error.
+      <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
+        <div className="container mx-auto px-4 py-16">
+          <div className="text-center mb-12">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent mb-4">
+              Welcome to Elika Platform
+            </h1>
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+              Streamline your recruitment process with our comprehensive vendor management system
             </p>
           </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="bg-primary text-primary-foreground px-4 py-2 rounded-md hover:bg-primary/90 transition-colors"
-          >
-            Refresh Page
-          </button>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            <Card className="text-center">
+              <CardHeader>
+                <Building2 className="h-8 w-8 mx-auto text-primary" />
+                <CardTitle className="text-lg">Vendor Management</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Complete vendor onboarding and management system
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="text-center">
+              <CardHeader>
+                <Users className="h-8 w-8 mx-auto text-primary" />
+                <CardTitle className="text-lg">Candidate Tracking</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Track candidates through the entire recruitment lifecycle
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="text-center">
+              <CardHeader>
+                <FileText className="h-8 w-8 mx-auto text-primary" />
+                <CardTitle className="text-lg">Document Management</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Secure document storage and approval workflows
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="text-center">
+              <CardHeader>
+                <TrendingUp className="h-8 w-8 mx-auto text-primary" />
+                <CardTitle className="text-lg">Analytics & Reports</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Comprehensive analytics and performance metrics
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="text-center">
+            <p className="text-muted-foreground mb-4">Please log in to access the platform</p>
+          </div>
         </div>
       </div>
     );
   }
 
-  return null;
-}
+  // Route based on user role
+  if (isVendorUser) {
+    return <VendorDashboardPage />;
+  }
+
+  if (isElikaUser) {
+    return <AdminDashboard />;
+  }
+
+  // Fallback for users without proper roles
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-16 text-center">
+        <h1 className="text-2xl font-bold mb-4">Access Pending</h1>
+        <p className="text-muted-foreground">
+          Your account is being set up. Please contact your administrator for access.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default Index;
