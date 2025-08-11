@@ -8,7 +8,12 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start:backend": "cd backend && npm start",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:full": "concurrently \"npm run dev\" \"npm run dev:backend\"",
+    "build:full": "npm run build && cd backend && npm install --production",
+    "deploy:lightsail": "chmod +x lightsail-setup.sh && ./lightsail-setup.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -40,6 +45,7 @@
     "@radix-ui/react-toggle-group": "^1.1.0",
     "@radix-ui/react-tooltip": "^1.1.4",
     "@tanstack/react-query": "^5.56.2",
+    "aws-sdk": "^2.1692.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
