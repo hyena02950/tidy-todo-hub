@@ -26,8 +26,11 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 8080,
       strictPort: true,
+      // Force HTTP in development
+      https: false,
       hmr: {
-        protocol: isProduction ? 'wss' : 'ws'
+        protocol: 'ws', // Force WebSocket (not WSS) for development
+        port: 8080
       },
       proxy: {
         '/api': {
@@ -82,10 +85,10 @@ export default defineConfig(({ mode }) => {
       }
     },
 
-    // Environment variables
+    // Environment variables - ensure HTTP is used in development
     define: {
       'process.env': {
-        VITE_API_BASE_URL: JSON.stringify(backendUrl),
+        VITE_API_BASE_URL: JSON.stringify(mode === 'development' ? 'http://localhost:3001' : backendUrl),
         VITE_NODE_ENV: JSON.stringify(mode),
         ...Object.fromEntries(
           Object.entries(env).map(([key, val]) => [`process.env.${key}`, JSON.stringify(val)])

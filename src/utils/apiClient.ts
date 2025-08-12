@@ -126,20 +126,9 @@ class ApiClient {
   }
 }
 
-// Ensure we use the correct protocol for API calls
-const getApiBaseUrl = () => {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
-  
-  // Force HTTP for localhost and development environments
-  if (import.meta.env.DEV || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-    return baseUrl.replace('https://', 'http://');
-  }
-  
-  return baseUrl;
-};
-
-// Use relative URLs to leverage Vite's proxy in development
-const API_BASE_URL = import.meta.env.DEV ? '' : getApiBaseUrl();
+// Always use relative URLs in development to leverage Vite's proxy
+// This ensures all requests go through the development server on port 8080
+const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001');
 
 // Create and export a singleton instance
 export const apiClient = new ApiClient(API_BASE_URL);
