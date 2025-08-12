@@ -1,12 +1,19 @@
 
 const helmet = require('helmet');
 
-// Check if we're in a secure context (HTTPS or localhost)
+// Check if we're in a secure context (HTTPS or localhost or development)
 const isSecureContext = (req) => {
   return req.secure || 
          req.get('x-forwarded-proto') === 'https' ||
          req.hostname === 'localhost' ||
-         req.hostname === '127.0.0.1';
+         req.hostname === '127.0.0.1' ||
+         process.env.NODE_ENV === 'development';
+};
+
+// Check if we should apply strict security policies (only for production HTTPS)
+const shouldApplyStrictSecurity = (req) => {
+  return process.env.NODE_ENV === 'production' && 
+         (req.secure || req.get('x-forwarded-proto') === 'https');
 };
 
 // Enhanced security headers configuration
@@ -33,9 +40,8 @@ const securityHeaders = helmet({
   // Cross-Origin Embedder Policy - disable for React apps
   crossOriginEmbedderPolicy: false,
   
-  // Cross-Origin Opener Policy - only for HTTPS
-  crossOriginOpenerPolicy: process.env.NODE_ENV === 'production' ? 
-    { policy: "same-origin" } : false,
+  // Cross-Origin Opener Policy - only for production HTTPS
+  crossOriginOpenerPolicy: false, // Disable completely for now to avoid issues
   
   // Cross-Origin Resource Policy
   crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -49,12 +55,8 @@ const securityHeaders = helmet({
   // Hide Powered-By header
   hidePoweredBy: true,
   
-  // HTTP Strict Transport Security - only for HTTPS
-  hsts: process.env.NODE_ENV === 'production' ? {
-    maxAge: 31536000, // 1 year
-    includeSubDomains: true,
-    preload: true
-  } : false,
+  // HTTP Strict Transport Security - only for production HTTPS
+  hsts: false, // Will be set conditionally in additionalHeaders
   
   // IE No Open
   ieNoOpen: true,
@@ -62,8 +64,8 @@ const securityHeaders = helmet({
   // No Sniff
   noSniff: true,
   
-  // Origin Agent Cluster - only for HTTPS or localhost
-  originAgentCluster: process.env.NODE_ENV === 'production',
+  // Origin Agent Cluster - disable to avoid conflicts
+  originAgentCluster: false,
   
   // Permitted Cross-Domain Policies
   permittedCrossDomainPolicies: false,
@@ -78,6 +80,7 @@ const securityHeaders = helmet({
 // Additional custom security headers with environment awareness
 const additionalHeaders = (req, res, next) => {
   const isSecure = isSecureContext(req);
+  const shouldUseStrictSecurity = shouldApplyStrictSecurity(req);
   
   // Prevent caching of sensitive data
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -90,13 +93,15 @@ const additionalHeaders = (req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   
-  // Only set HSTS for HTTPS connections
-  if (isSecure && process.env.NODE_ENV === 'production') {
+  // Only set HSTS for production HTTPS connections
+  if (shouldUseStrictSecurity) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
   }
   
-  // Permissions Policy
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  // Permissions Policy - less restrictive for development
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  }
   
   next();
 };
