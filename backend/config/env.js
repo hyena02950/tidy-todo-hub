@@ -23,10 +23,17 @@ module.exports = {
   PORT: parseInt(process.env.PORT) || 3001,
   NODE_ENV: process.env.NODE_ENV || 'development',
   
-  // CORS
+  // CORS - Include HTTP versions for development
   CORS_ORIGINS: process.env.CORS_ORIGINS ? 
     process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()) : 
-    ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8080'],
+    [
+      'http://localhost:3000', 
+      'http://localhost:5173', 
+      'http://localhost:8080',
+      'https://localhost:3000',
+      'https://localhost:5173', 
+      'https://localhost:8080'
+    ],
   
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000,
