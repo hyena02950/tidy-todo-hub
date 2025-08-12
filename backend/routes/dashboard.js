@@ -95,7 +95,7 @@ router.get('/vendor-stats', authenticateToken, requireVendorAccess, async (req, 
       interviewsScheduled: pendingInterviews || 0,
       totalInvoices: pendingInvoices || 0,
       pendingApprovals: pendingInvoices || 0,
-      pendingInvoicesAmount: paidInvoices.reduce((sum, invoice) => sum + (invoice.status === 'pending' ? invoice.amount : 0), 0)
+      pendingInvoicesAmount: paidInvoices.reduce((sum, invoice) => sum + (invoice.status === 'pending' ? invoice.amount : 0), 0),
       // Add trend data (mock for now)
       jobsTrend: 5,
       candidatesTrend: 12,
