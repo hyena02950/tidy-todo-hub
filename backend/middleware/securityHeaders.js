@@ -1,4 +1,13 @@
+
 const helmet = require('helmet');
+
+// Check if we're in a secure context (HTTPS or localhost)
+const isSecureContext = (req) => {
+  return req.secure || 
+         req.get('x-forwarded-proto') === 'https' ||
+         req.hostname === 'localhost' ||
+         req.hostname === '127.0.0.1';
+};
 
 // Enhanced security headers configuration
 const securityHeaders = helmet({
@@ -21,11 +30,12 @@ const securityHeaders = helmet({
     },
   },
   
-  // Cross-Origin Embedder Policy
-  crossOriginEmbedderPolicy: false, // Disable for React apps
+  // Cross-Origin Embedder Policy - disable for React apps
+  crossOriginEmbedderPolicy: false,
   
-  // Cross-Origin Opener Policy
-  crossOriginOpenerPolicy: { policy: "same-origin" },
+  // Cross-Origin Opener Policy - only for HTTPS
+  crossOriginOpenerPolicy: process.env.NODE_ENV === 'production' ? 
+    { policy: "same-origin" } : false,
   
   // Cross-Origin Resource Policy
   crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -39,12 +49,12 @@ const securityHeaders = helmet({
   // Hide Powered-By header
   hidePoweredBy: true,
   
-  // HTTP Strict Transport Security
-  hsts: {
+  // HTTP Strict Transport Security - only for HTTPS
+  hsts: process.env.NODE_ENV === 'production' ? {
     maxAge: 31536000, // 1 year
     includeSubDomains: true,
     preload: true
-  },
+  } : false,
   
   // IE No Open
   ieNoOpen: true,
@@ -52,8 +62,8 @@ const securityHeaders = helmet({
   // No Sniff
   noSniff: true,
   
-  // Origin Agent Cluster
-  originAgentCluster: true,
+  // Origin Agent Cluster - only for HTTPS or localhost
+  originAgentCluster: process.env.NODE_ENV === 'production',
   
   // Permitted Cross-Domain Policies
   permittedCrossDomainPolicies: false,
@@ -65,8 +75,10 @@ const securityHeaders = helmet({
   xssFilter: true,
 });
 
-// Additional custom security headers
+// Additional custom security headers with environment awareness
 const additionalHeaders = (req, res, next) => {
+  const isSecure = isSecureContext(req);
+  
   // Prevent caching of sensitive data
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -77,7 +89,13 @@ const additionalHeaders = (req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  
+  // Only set HSTS for HTTPS connections
+  if (isSecure && process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  }
+  
+  // Permissions Policy
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   
   next();
