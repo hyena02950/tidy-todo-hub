@@ -65,8 +65,8 @@ const VendorDashboard = () => {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   }
 
-  // Show access denied only if user has no vendor profile and is not a vendor user
-  if (!isVendorUser && hasVendorProfile === false) {
+  // Always show vendor registration for users without vendor profiles
+  if (hasVendorProfile === false) {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
@@ -78,7 +78,7 @@ const VendorDashboard = () => {
                 <div className="mb-8">
                   <h1 className="text-3xl font-bold">Vendor Registration</h1>
                   <p className="text-muted-foreground mt-2">
-                    Create your vendor profile to get started.
+                    Create your vendor profile to get started with the platform.
                   </p>
                 </div>
                 <NewVendorRegistration onVendorCreated={handleVendorCreated} />
@@ -90,22 +90,7 @@ const VendorDashboard = () => {
     );
   }
 
-  // Show access denied if we can't determine vendor status
-  if (!isVendorUser && hasVendorProfile === null) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <Header />
-        <div className="flex items-center justify-center flex-1">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold">Access Denied</h1>
-            <p className="text-muted-foreground mt-2">You don't have permission to access this page.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Show vendor dashboard with tabs for vendor users OR users with vendor profiles
+  // Show vendor dashboard with tabs for users with vendor profiles
   return (
     <div className="min-h-screen flex flex-col">
       <Header />

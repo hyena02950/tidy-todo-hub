@@ -1,4 +1,3 @@
-
 const express = require('express');
 const User = require('../models/User');
 const Vendor = require('../models/Vendor');
@@ -10,25 +9,37 @@ const router = express.Router();
 
 // GET /api/users/profiles - Get all user profiles (Elika Admin only)
 router.get('/profiles', authenticateToken, requireRole(['elika_admin']), asyncHandler(async (req, res) => {
-  const users = await User.find({ isActive: true })
-    .select('-password')
-    .populate('roles.vendorId', 'name');
+  try {
+    const users = await User.find({ isActive: true })
+      .select('-password')
+      .populate('roles.vendorId', 'name');
 
-  const profiles = users.map(user => ({
-    _id: user._id.toString(),
-    id: user._id.toString(),
-    email: user.email,
-    name: user.profile?.fullName || user.profile?.contactPerson || user.email.split('@')[0],
-    full_name: user.profile?.fullName || user.profile?.contactPerson || '',
-    user_roles: user.roles.map(role => ({
-      role: role.role,
-      vendorId: role.vendorId
-    })),
-    created_at: user.createdAt,
-    last_login: user.lastLogin
-  }));
+    const profiles = users.map(user => ({
+      _id: user._id.toString(),
+      id: user._id.toString(),
+      email: user.email,
+      name: user.profile?.fullName || user.profile?.contactPerson || user.email.split('@')[0],
+      full_name: user.profile?.fullName || user.profile?.contactPerson || '',
+      user_roles: user.roles.map(role => ({
+        role: role.role,
+        vendorId: role.vendorId
+      })),
+      created_at: user.createdAt,
+      last_login: user.lastLogin
+    }));
 
-  res.json({ profiles });
+    res.json({ 
+      profiles,
+      message: profiles.length === 0 ? 'No user profiles found' : undefined
+    });
+  } catch (error) {
+    console.error('Error fetching user profiles:', error);
+    res.status(500).json({
+      error: true,
+      message: 'Failed to fetch user profiles',
+      code: 'FETCH_PROFILES_ERROR'
+    });
+  }
 }));
 
 // GET /api/users/:userId/roles - Get user roles

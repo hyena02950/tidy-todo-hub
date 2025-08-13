@@ -32,11 +32,11 @@ router.post('/register', asyncHandler(async (req, res) => {
     });
   }
 
-  // Create new user with NO roles initially - roles will be assigned after vendor creation
+  // Create new user with vendor_admin role by default
   const user = new User({
     email: email.toLowerCase(),
     password,
-    roles: [], // Start with empty roles array
+    roles: [{ role: 'vendor_admin' }], // Automatically assign vendor_admin role
     profile: {
       companyName: companyName || '',
       contactPerson: contactPerson || email.split('@')[0],
