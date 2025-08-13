@@ -65,7 +65,7 @@ const VendorDashboard = () => {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   }
 
-  // Show vendor registration form for users without vendor profiles
+  // Show access denied only if user has no vendor profile and is not a vendor user
   if (!isVendorUser && hasVendorProfile === false) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -90,7 +90,7 @@ const VendorDashboard = () => {
     );
   }
 
-  // Show access denied if user is not a vendor user and we couldn't determine vendor status
+  // Show access denied if we can't determine vendor status
   if (!isVendorUser && hasVendorProfile === null) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -105,6 +105,7 @@ const VendorDashboard = () => {
     );
   }
 
+  // Show vendor dashboard with tabs for vendor users OR users with vendor profiles
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
