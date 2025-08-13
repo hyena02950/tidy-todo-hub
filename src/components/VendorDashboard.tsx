@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getToken } from "@/utils/auth";
 
 const VendorDashboard = () => {
-  const { loading, isVendorUser, vendorId } = useUserRole();
+  const { loading: roleLoading, isVendorUser, vendorId } = useUserRole();
   const { user } = useAuth();
   const [hasVendorProfile, setHasVendorProfile] = useState<boolean | null>(null);
   const [checkingVendor, setCheckingVendor] = useState(true);
@@ -18,6 +18,7 @@ const VendorDashboard = () => {
   useEffect(() => {
     const checkVendorProfile = async () => {
       if (!user) {
+        setHasVendorProfile(false);
         setCheckingVendor(false);
         return;
       }
@@ -30,17 +31,21 @@ const VendorDashboard = () => {
           return;
         }
 
-        const response = await fetch('/api/vendors', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
+        // If user has vendor roles and vendorId, they have a vendor profile
+        if (isVendorUser && vendorId) {
+          const response = await fetch(`/api/vendors/${vendorId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
 
-        if (response.ok) {
-          const data = await response.json();
-          const hasVendor = data.vendors && data.vendors.length > 0;
-          setHasVendorProfile(hasVendor);
+          if (response.ok) {
+            setHasVendorProfile(true);
+          } else {
+            setHasVendorProfile(false);
+          }
         } else {
+          // No vendor role or vendorId means no vendor profile
           setHasVendorProfile(false);
         }
       } catch (error) {
@@ -51,8 +56,10 @@ const VendorDashboard = () => {
       }
     };
 
-    checkVendorProfile();
-  }, [user]);
+    if (!roleLoading) {
+      checkVendorProfile();
+    }
+  }, [user, isVendorUser, vendorId, roleLoading]);
 
   const handleVendorCreated = (newVendorId: string) => {
     console.log('Vendor created with ID:', newVendorId);
@@ -61,11 +68,11 @@ const VendorDashboard = () => {
     window.location.reload();
   };
 
-  if (loading || checkingVendor) {
+  if (roleLoading || checkingVendor) {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   }
 
-  // Always show vendor registration for users without vendor profiles
+  // Show vendor registration for users without vendor profiles
   if (hasVendorProfile === false) {
     return (
       <div className="min-h-screen flex flex-col">

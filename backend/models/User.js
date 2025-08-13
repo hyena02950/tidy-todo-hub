@@ -25,8 +25,8 @@ const userSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',
       required: function() {
-        // Fix: Check the parent role property, not this.role
-        return this.parent().roles && ['vendor_admin', 'vendor_recruiter'].includes(this.role);
+        // Only require vendorId for vendor roles
+        return ['vendor_admin', 'vendor_recruiter'].includes(this.role);
       }
     }
   }],
