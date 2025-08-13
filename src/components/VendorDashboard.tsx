@@ -65,7 +65,7 @@ const VendorDashboard = () => {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   }
 
-  // Show access denied if user doesn't have vendor permissions and doesn't have a vendor profile
+  // Show vendor registration form for users without vendor profiles
   if (!isVendorUser && hasVendorProfile === false) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -121,16 +121,16 @@ const VendorDashboard = () => {
               </div>
 
               <Tabs defaultValue="onboarding" className="space-y-4">
-                <TabsList>
+                <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="onboarding">Document Upload & Onboarding</TabsTrigger>
                   <TabsTrigger value="profile">Vendor Profile</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="onboarding">
+                <TabsContent value="onboarding" className="space-y-4">
                   <VendorOnboarding />
                 </TabsContent>
                 
-                <TabsContent value="profile">
+                <TabsContent value="profile" className="space-y-4">
                   <div className="bg-card rounded-lg p-6">
                     <h2 className="text-xl font-semibold mb-4">Vendor Profile Management</h2>
                     <p className="text-muted-foreground mb-4">

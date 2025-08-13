@@ -66,6 +66,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/vendors', require('./routes/vendors'));
 app.use('/api/vendors', require('./routes/vendorDocuments'));
+app.use('/api/vendors', require('./routes/vendorDocumentReminders'));
 app.use('/api/jobs', require('./routes/jobs'));
 app.use('/api/candidates', require('./routes/candidates'));
 app.use('/api/interviews', require('./routes/interviews'));
