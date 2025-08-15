@@ -1,33 +1,52 @@
+
 const express = require('express');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 const { authenticateToken } = require('../middleware/auth');
 const { enforceFileAccess } = require('../middleware/vendorAccess');
 const fileUploadService = require('../services/fileUploadService');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
+const { withTransaction } = require('../utils/dbTransaction');
 
 const router = express.Router();
 
-// Secure document download endpoint
+// Enhanced document access logging
+const logDocumentAccess = async (userId, documentId, vendorId, action, session = null) => {
+  // You can implement document access logging here
+  console.log(`Document Access: User ${userId} ${action} document ${documentId} for vendor ${vendorId}`);
+};
+
+// Secure document download endpoint with enhanced permissions
 router.get('/documents/:vendorId/:documentId', 
   authenticateToken, 
   enforceFileAccess,
   asyncHandler(async (req, res) => {
     const { vendorId, documentId } = req.params;
+    const userId = req.user.id;
     
     try {
-      const Vendor = require('../models/Vendor');
-      const vendor = await Vendor.findById(vendorId);
-      
-      if (!vendor) {
-        throw new AppError('Vendor not found', 404, 'VENDOR_NOT_FOUND');
-      }
+      const result = await withTransaction(async (session) => {
+        const Vendor = require('../models/Vendor');
+        const vendor = await Vendor.findById(vendorId).session(session);
+        
+        if (!vendor) {
+          throw new AppError('Vendor not found', 404, 'VENDOR_NOT_FOUND');
+        }
 
-      const document = vendor.documents.id(documentId);
-      if (!document) {
-        throw new AppError('Document not found', 404, 'DOCUMENT_NOT_FOUND');
-      }
+        const document = vendor.documents.id(documentId);
+        if (!document) {
+          throw new AppError('Document not found', 404, 'DOCUMENT_NOT_FOUND');
+        }
+
+        // Log document access
+        await logDocumentAccess(userId, documentId, vendorId, 'download', session);
+
+        return { vendor, document };
+      });
+
+      const { document } = result;
 
       // Get secure file access URL
       const fileUrl = await fileUploadService.getFileAccessUrl(document.fileUrl);
@@ -36,20 +55,47 @@ router.get('/documents/:vendorId/:documentId',
         // For S3 files, redirect to presigned URL
         res.redirect(fileUrl);
       } else {
-        // For local files, serve securely
+        // For local files, serve securely with permission checks
         const filePath = path.join(__dirname, '../../', document.fileUrl);
         
-        if (!fs.existsSync(filePath)) {
-          throw new AppError('File not found on disk', 404, 'FILE_NOT_FOUND');
+        try {
+          // Check file exists and is readable
+          await fs.access(filePath, fsSync.constants.R_OK);
+          
+          // Get file stats for additional security checks
+          const stats = await fs.stat(filePath);
+          if (!stats.isFile()) {
+            throw new AppError('Invalid file type', 400, 'INVALID_FILE_TYPE');
+          }
+          
+          // Set appropriate headers
+          res.setHeader('Content-Disposition', `attachment; filename="${document.fileName}"`);
+          res.setHeader('Content-Type', 'application/octet-stream');
+          res.setHeader('Content-Length', stats.size);
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+          
+          // Stream the file
+          const fileStream = fsSync.createReadStream(filePath);
+          
+          fileStream.on('error', (error) => {
+            console.error('File stream error:', error);
+            if (!res.headersSent) {
+              res.status(500).json({
+                error: true,
+                message: 'Error reading file',
+                code: 'FILE_READ_ERROR'
+              });
+            }
+          });
+          
+          fileStream.pipe(res);
+          
+        } catch (fileError) {
+          console.error('File access error:', fileError);
+          throw new AppError('File not accessible', 404, 'FILE_ACCESS_ERROR');
         }
-        
-        // Set appropriate headers
-        res.setHeader('Content-Disposition', `attachment; filename="${document.fileName}"`);
-        res.setHeader('Content-Type', 'application/octet-stream');
-        
-        // Stream the file
-        const fileStream = fs.createReadStream(filePath);
-        fileStream.pipe(res);
       }
     } catch (error) {
       console.error('Error serving secure document:', error);
@@ -60,5 +106,29 @@ router.get('/documents/:vendorId/:documentId',
     }
   })
 );
+
+// Health check for file system permissions
+router.get('/health/permissions', authenticateToken, asyncHandler(async (req, res) => {
+  const checks = [];
+  
+  // Check upload directories
+  const dirs = ['uploads', 'uploads/resumes', 'uploads/invoices', 'uploads/documents'];
+  
+  for (const dir of dirs) {
+    const dirPath = path.join(__dirname, '../../', dir);
+    try {
+      await fs.access(dirPath, fsSync.constants.R_OK | fsSync.constants.W_OK);
+      checks.push({ path: dir, status: 'OK', permissions: 'Read/Write' });
+    } catch (error) {
+      checks.push({ path: dir, status: 'ERROR', error: error.message });
+    }
+  }
+  
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    permissionChecks: checks
+  });
+}));
 
 module.exports = router;

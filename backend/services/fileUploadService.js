@@ -1,6 +1,8 @@
+
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 const s3Service = require('./s3Service');
 const env = require('../config/env');
 
@@ -8,6 +10,30 @@ class FileUploadService {
   constructor() {
     this.isS3Mode = env.FILE_STORAGE_MODE === 's3';
     this.setupMulter();
+    this.ensureDirectoryPermissions();
+  }
+
+  async ensureDirectoryPermissions() {
+    if (!this.isS3Mode) {
+      const uploadDirs = ['uploads', 'uploads/resumes', 'uploads/invoices', 'uploads/documents'];
+      
+      for (const dir of uploadDirs) {
+        const dirPath = path.join(__dirname, '../../', dir);
+        try {
+          await fs.access(dirPath);
+        } catch (error) {
+          await fs.mkdir(dirPath, { recursive: true, mode: 0o755 });
+          console.log(`Created directory with proper permissions: ${dirPath}`);
+        }
+        
+        // Ensure proper permissions
+        try {
+          await fs.chmod(dirPath, 0o755);
+        } catch (error) {
+          console.warn(`Could not set permissions for ${dirPath}:`, error.message);
+        }
+      }
+    }
   }
 
   setupMulter() {
@@ -25,10 +51,12 @@ class FileUploadService {
 
   getLocalStorage() {
     return multer.diskStorage({
-      destination: (req, file, cb) => {
+      destination: async (req, file, cb) => {
         const uploadPath = this.getUploadPath(req.uploadFolder || 'general');
-        if (!fs.existsSync(uploadPath)) {
-          fs.mkdirSync(uploadPath, { recursive: true });
+        try {
+          await fs.access(uploadPath);
+        } catch (error) {
+          await fs.mkdir(uploadPath, { recursive: true, mode: 0o755 });
         }
         cb(null, uploadPath);
       },
@@ -61,19 +89,12 @@ class FileUploadService {
     cb(null, true);
   }
 
-  /**
-   * Process uploaded file - either save to S3 or return local path
-   * @param {object} file - Multer file object
-   * @param {string} folder - Upload folder (resumes, invoices, documents)
-   * @returns {Promise<string>} - File URL
-   */
   async processUploadedFile(file, folder) {
     if (!file) {
       throw new Error('No file provided');
     }
 
     if (this.isS3Mode) {
-      // Upload to S3
       const s3Url = await s3Service.uploadFile(
         file.buffer,
         file.originalname,
@@ -82,54 +103,54 @@ class FileUploadService {
       );
       return s3Url;
     } else {
-      // Local file storage
-      return `/uploads/${folder}/${file.filename}`;
+      const filePath = `/uploads/${folder}/${file.filename}`;
+      const fullPath = path.join(__dirname, '../../', filePath);
+      
+      // Set proper file permissions
+      try {
+        await fs.chmod(fullPath, 0o644);
+      } catch (error) {
+        console.warn(`Could not set file permissions for ${fullPath}:`, error.message);
+      }
+      
+      return filePath;
     }
   }
 
-  /**
-   * Delete file - either from S3 or local storage
-   * @param {string} fileUrl - File URL to delete
-   * @returns {Promise<void>}
-   */
   async deleteFile(fileUrl) {
     if (!fileUrl) return;
 
     if (this.isS3Mode && fileUrl.includes('amazonaws.com')) {
-      // Delete from S3
       await s3Service.deleteFile(fileUrl);
     } else if (!this.isS3Mode && fileUrl.startsWith('/uploads/')) {
-      // Delete local file
       const filePath = path.join(__dirname, '..', '..', fileUrl);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      try {
+        await fs.access(filePath);
+        await fs.unlink(filePath);
         console.log('Local file deleted:', filePath);
+      } catch (error) {
+        console.warn('File deletion failed:', error.message);
       }
     }
   }
 
-  /**
-   * Get file access URL - either S3 presigned URL or local path
-   * @param {string} fileUrl - Stored file URL
-   * @returns {Promise<string>} - Accessible file URL
-   */
   async getFileAccessUrl(fileUrl) {
     if (!fileUrl) return null;
 
     if (this.isS3Mode && fileUrl.includes('amazonaws.com')) {
-      // Generate presigned URL for S3
       return await s3Service.getPresignedUrl(fileUrl);
     } else {
-      // Return local file path as-is
-      return fileUrl;
+      // Verify file exists and has proper permissions
+      const filePath = path.join(__dirname, '..', '..', fileUrl);
+      try {
+        await fs.access(filePath, fsSync.constants.R_OK);
+        return fileUrl;
+      } catch (error) {
+        throw new Error('File not accessible');
+      }
     }
   }
 
-  /**
-   * Get upload middleware for specific folder
-   * @param {string} folder - Upload folder name
-   * @returns {function} - Multer middleware
-   */
   getUploadMiddleware(folder) {
     return (req, res, next) => {
       req.uploadFolder = folder;

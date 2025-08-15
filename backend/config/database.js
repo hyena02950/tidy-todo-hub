@@ -14,11 +14,17 @@ const connectDB = async () => {
     }
 
     const options = {
-      serverSelectionTimeoutMS: 30000, // Increased timeout
+      serverSelectionTimeoutMS: 30000,
       socketTimeoutMS: 45000,
       maxPoolSize: 10,
-      bufferCommands: false, // Disable mongoose buffering
-      authSource: 'admin'
+      bufferCommands: false,
+      authSource: 'admin',
+      // Enhanced transaction support
+      readPreference: 'primary',
+      readConcern: { level: 'majority' },
+      writeConcern: { w: 'majority', j: true },
+      retryWrites: true,
+      retryReads: true
     };
 
     console.log('🔄 Attempting to connect to MongoDB...');
@@ -27,6 +33,15 @@ const connectDB = async () => {
     console.log(`✅ MongoDB Connected: ${mongoose.connection.host}`);
     console.log(`📊 Database: ${mongoose.connection.name}`);
     console.log(`👤 User: ${mongoose.connection.user || 'none'}`);
+    
+    // Check if replica set is available for transactions
+    const admin = mongoose.connection.db.admin();
+    try {
+      const result = await admin.replSetGetStatus();
+      console.log('✅ Replica Set detected - Transactions enabled');
+    } catch (error) {
+      console.log('⚠️ No replica set detected - Transactions may be limited');
+    }
 
     return mongoose.connection;
 
@@ -37,8 +52,8 @@ const connectDB = async () => {
     console.log('- Check MongoDB server status');
     console.log('- Validate network connectivity');
     console.log('- Confirm authentication credentials');
+    console.log('- For transactions, ensure replica set is configured');
     
-    // Don't exit process immediately, let the app handle the error
     throw error;
   }
 };
@@ -54,6 +69,13 @@ mongoose.connection.on('error', (err) => {
 
 mongoose.connection.on('disconnected', () => {
   console.log('⚠️ Mongoose disconnected');
+});
+
+// Transaction error handling
+mongoose.connection.on('error', (err) => {
+  if (err.message && err.message.includes('transaction')) {
+    console.error('❌ Transaction error:', err);
+  }
 });
 
 // Graceful shutdown

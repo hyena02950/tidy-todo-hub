@@ -1,9 +1,11 @@
+
 const Vendor = require('../models/Vendor');
 const Candidate = require('../models/Candidate');
 const Invoice = require('../models/Invoice');
 const AppError = require('../utils/AppError');
+const { withTransaction } = require('../utils/dbTransaction');
 
-// Middleware to ensure vendor users can only access their own data
+// Enhanced vendor scope enforcement with transaction support
 const enforceVendorScope = (resourceType) => {
   return async (req, res, next) => {
     try {
@@ -25,10 +27,9 @@ const enforceVendorScope = (resourceType) => {
         throw new AppError('Access denied: Vendor access required', 403, 'VENDOR_ACCESS_DENIED');
       }
 
-      // Add vendor scope validation based on resource type
+      // Add vendor scope validation based on resource type with transaction support
       switch (resourceType) {
         case 'vendor':
-          // For vendor resources, ensure the vendor ID matches
           const vendorId = req.params.id || req.params.vendorId;
           if (vendorId && vendorId !== req.vendorId.toString()) {
             throw new AppError('Access denied: Cannot access other vendor data', 403, 'CROSS_VENDOR_ACCESS_DENIED');
@@ -36,31 +37,32 @@ const enforceVendorScope = (resourceType) => {
           break;
 
         case 'candidate':
-          // For candidate resources, verify the candidate belongs to the vendor
           const candidateId = req.params.candidateId || req.params.id;
           if (candidateId) {
-            const candidate = await Candidate.findOne({ candidateId });
-            if (!candidate || candidate.vendorId.toString() !== req.vendorId.toString()) {
-              throw new AppError('Access denied: Candidate not found or not owned by vendor', 403, 'CANDIDATE_ACCESS_DENIED');
-            }
-            req.candidate = candidate;
+            await withTransaction(async (session) => {
+              const candidate = await Candidate.findOne({ candidateId }).session(session);
+              if (!candidate || candidate.vendorId.toString() !== req.vendorId.toString()) {
+                throw new AppError('Access denied: Candidate not found or not owned by vendor', 403, 'CANDIDATE_ACCESS_DENIED');
+              }
+              req.candidate = candidate;
+            });
           }
           break;
 
         case 'invoice':
-          // For invoice resources, verify the invoice belongs to the vendor
           const invoiceId = req.params.invoiceId || req.params.id;
           if (invoiceId) {
-            const invoice = await Invoice.findById(invoiceId);
-            if (!invoice || invoice.vendorId.toString() !== req.vendorId.toString()) {
-              throw new AppError('Access denied: Invoice not found or not owned by vendor', 403, 'INVOICE_ACCESS_DENIED');
-            }
-            req.invoice = invoice;
+            await withTransaction(async (session) => {
+              const invoice = await Invoice.findById(invoiceId).session(session);
+              if (!invoice || invoice.vendorId.toString() !== req.vendorId.toString()) {
+                throw new AppError('Access denied: Invoice not found or not owned by vendor', 403, 'INVOICE_ACCESS_DENIED');
+              }
+              req.invoice = invoice;
+            });
           }
           break;
 
         default:
-          // For other resources, just ensure vendor scope is set
           break;
       }
 
@@ -71,7 +73,7 @@ const enforceVendorScope = (resourceType) => {
   };
 };
 
-// Middleware to check file ownership before allowing download
+// Enhanced file access middleware with transaction support and better permission checking
 const enforceFileAccess = async (req, res, next) => {
   try {
     const userRoles = req.userRoles || [];
@@ -89,24 +91,46 @@ const enforceFileAccess = async (req, res, next) => {
       throw new AppError('Access denied: Vendor access required', 403, 'VENDOR_ACCESS_REQUIRED');
     }
 
-    // Check file ownership based on route
-    const { candidateId, invoiceId } = req.params;
+    // Check file ownership based on route with transaction support
+    const { candidateId, invoiceId, vendorId, documentId } = req.params;
 
-    if (candidateId) {
-      const candidate = await Candidate.findOne({ candidateId });
-      if (!candidate || candidate.vendorId.toString() !== req.vendorId.toString()) {
-        throw new AppError('Access denied: Resume not found or not accessible', 403, 'RESUME_ACCESS_DENIED');
+    await withTransaction(async (session) => {
+      if (candidateId) {
+        const candidate = await Candidate.findOne({ candidateId }).session(session);
+        if (!candidate || candidate.vendorId.toString() !== req.vendorId.toString()) {
+          throw new AppError('Access denied: Resume not found or not accessible', 403, 'RESUME_ACCESS_DENIED');
+        }
+        req.candidate = candidate;
       }
-      req.candidate = candidate;
-    }
 
-    if (invoiceId) {
-      const invoice = await Invoice.findById(invoiceId);
-      if (!invoice || invoice.vendorId.toString() !== req.vendorId.toString()) {
-        throw new AppError('Access denied: Invoice not found or not accessible', 403, 'INVOICE_ACCESS_DENIED');
+      if (invoiceId) {
+        const invoice = await Invoice.findById(invoiceId).session(session);
+        if (!invoice || invoice.vendorId.toString() !== req.vendorId.toString()) {
+          throw new AppError('Access denied: Invoice not found or not accessible', 403, 'INVOICE_ACCESS_DENIED');
+        }
+        req.invoice = invoice;
       }
-      req.invoice = invoice;
-    }
+
+      if (vendorId && documentId) {
+        // For vendor documents, ensure the vendor matches the user's vendor
+        if (vendorId !== req.vendorId.toString()) {
+          throw new AppError('Access denied: Document not accessible', 403, 'DOCUMENT_ACCESS_DENIED');
+        }
+
+        const vendor = await Vendor.findById(vendorId).session(session);
+        if (!vendor) {
+          throw new AppError('Vendor not found', 404, 'VENDOR_NOT_FOUND');
+        }
+
+        const document = vendor.documents.id(documentId);
+        if (!document) {
+          throw new AppError('Document not found', 404, 'DOCUMENT_NOT_FOUND');
+        }
+
+        req.vendor = vendor;
+        req.document = document;
+      }
+    });
 
     next();
   } catch (error) {
