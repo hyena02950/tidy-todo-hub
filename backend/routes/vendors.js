@@ -1,4 +1,3 @@
-
 const express = require('express');
 const mongoose = require('mongoose');
 const Vendor = require('../models/Vendor');
@@ -16,9 +15,9 @@ const isValidObjectId = (id) => {
   return mongoose.Types.ObjectId.isValid(id) && /^[0-9a-fA-F]{24}$/.test(id);
 };
 
-// GET /api/vendors/workflow-status - Get workflow status counts
-router.get('/workflow-status', auth.authenticateToken, asyncHandler(async (req, res) => {
-  console.log('Fetching workflow status counts');
+// GET /api/vendors/workflow-status - Get workflow status counts with proper auth
+router.get('/workflow-status', auth.authenticateToken, auth.requireRole(['elika_admin', 'delivery_head', 'finance_team']), asyncHandler(async (req, res) => {
+  console.log('Fetching workflow status counts with user:', req.user.id);
   
   try {
     const counts = await Vendor.aggregate([
@@ -56,6 +55,285 @@ router.get('/workflow-status', auth.authenticateToken, asyncHandler(async (req, 
     });
   }
 }));
+
+// GET /api/vendors/applications - Get all vendor applications with proper filtering
+router.get('/applications', auth.authenticateToken, auth.requireRole(['elika_admin', 'delivery_head']), asyncHandler(async (req, res) => {
+  console.log('Fetching all vendor applications for admin user:', req.user.id);
+  
+  try {
+    const applications = await Vendor.aggregate([
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'createdBy',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      {
+        $unwind: {
+          path: '$user',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $addFields: {
+          totalDocuments: { $size: { $ifNull: ['$documents', []] } },
+          approvedDocuments: {
+            $size: {
+              $filter: {
+                input: { $ifNull: ['$documents', []] },
+                cond: { $eq: ['$$this.status', 'approved'] }
+              }
+            }
+          },
+          mandatoryDocumentsApproved: {
+            $allElementsTrue: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: { $ifNull: ['$documents', []] },
+                    cond: { $eq: ['$$this.required', true] }
+                  }
+                },
+                in: { $eq: ['$$this.status', 'approved'] }
+              }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          id: '$_id',
+          vendor_name: '$name',
+          vendor_email: { $ifNull: ['$user.email', '$email'] },
+          status: { $ifNull: ['$application.status', 'draft'] },
+          submitted_at: '$application.submittedAt',
+          reviewed_at: '$application.reviewedAt',
+          review_notes: '$application.reviewNotes',
+          total_documents: '$totalDocuments',
+          approved_documents: '$approvedDocuments',
+          mandatory_documents_approved: '$mandatoryDocumentsApproved',
+          created_at: '$createdAt',
+          updated_at: '$updatedAt'
+        }
+      },
+      { $sort: { created_at: -1 } }
+    ]);
+    
+    res.json({
+      success: true,
+      data: applications
+    });
+  } catch (error) {
+    console.error('Error fetching vendor applications:', error);
+    res.status(500).json({
+      error: true,
+      message: 'Failed to fetch vendor applications',
+      code: 'FETCH_APPLICATIONS_ERROR'
+    });
+  }
+}));
+
+// PATCH /api/vendors/applications/:id/status - Update application status with real-time notification
+router.patch('/applications/:id/status', 
+  auth.authenticateToken, 
+  auth.requireRole(['elika_admin']), 
+  sensitiveOperationsLimiter, 
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { status, reviewNotes } = req.body;
+    
+    console.log('Updating application status:', { id, status, reviewNotes, adminId: req.user.id });
+    
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        error: true,
+        message: 'Invalid application ID format',
+        code: 'INVALID_ID_FORMAT'
+      });
+    }
+    
+    const validStatuses = ['draft', 'submitted', 'under_review', 'approved', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        error: true,
+        message: 'Invalid status value',
+        code: 'INVALID_STATUS',
+        allowedStatuses: validStatuses
+      });
+    }
+    
+    try {
+      const vendor = await Vendor.findById(id);
+      
+      if (!vendor) {
+        return res.status(404).json({
+          error: true,
+          message: 'Application not found',
+          code: 'APPLICATION_NOT_FOUND'
+        });
+      }
+      
+      // Update application status with proper audit trail
+      const previousStatus = vendor.application?.status || 'draft';
+      vendor.application = {
+        ...vendor.application,
+        status,
+        reviewedAt: new Date(),
+        reviewedBy: req.user.id,
+        reviewNotes: reviewNotes || vendor.application?.reviewNotes,
+        previousStatus,
+        statusHistory: [
+          ...(vendor.application?.statusHistory || []),
+          {
+            status: previousStatus,
+            changedTo: status,
+            changedAt: new Date(),
+            changedBy: req.user.id,
+            notes: reviewNotes
+          }
+        ]
+      };
+      
+      // If approved, also update vendor status
+      if (status === 'approved') {
+        vendor.status = 'active';
+      } else if (status === 'rejected') {
+        vendor.status = 'rejected';
+      }
+      
+      await vendor.save();
+      
+      // Send real-time notification about application status change
+      const realtimeService = require('../services/realtimeService');
+      realtimeService.notifyApplicationStatusChange(
+        vendor._id.toString(),
+        vendor._id.toString(),
+        status,
+        req.user.id,
+        reviewNotes
+      );
+      
+      console.log('Application status updated successfully:', {
+        vendorId: id,
+        newStatus: status,
+        previousStatus,
+        adminId: req.user.id
+      });
+      
+      res.json({
+        success: true,
+        message: 'Application status updated successfully',
+        data: {
+          id: vendor._id,
+          status: vendor.application.status,
+          reviewedAt: vendor.application.reviewedAt,
+          reviewedBy: vendor.application.reviewedBy
+        }
+      });
+    } catch (error) {
+      console.error('Error updating application status:', error);
+      res.status(500).json({
+        error: true,
+        message: 'Failed to update application status',
+        code: 'UPDATE_APPLICATION_ERROR'
+      });
+    }
+  })
+);
+
+// PATCH /api/vendors/:id/status - Update vendor status with real-time notification
+router.patch('/:id/status', 
+  auth.authenticateToken, 
+  auth.requireRole(['elika_admin']), 
+  sensitiveOperationsLimiter, 
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    console.log('Updating vendor status:', { id, status, adminId: req.user.id });
+    
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        error: true,
+        message: 'Invalid vendor ID format',
+        code: 'INVALID_ID_FORMAT'
+      });
+    }
+    
+    const validStatuses = ['pending', 'active', 'inactive', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        error: true,
+        message: 'Invalid status value',
+        code: 'INVALID_STATUS',
+        allowedStatuses: validStatuses
+      });
+    }
+    
+    try {
+      const vendor = await Vendor.findById(id);
+      
+      if (!vendor) {
+        return res.status(404).json({
+          error: true,
+          message: 'Vendor not found',
+          code: 'VENDOR_NOT_FOUND'
+        });
+      }
+      
+      const previousStatus = vendor.status;
+      vendor.status = status;
+      vendor.updatedAt = new Date();
+      
+      // Add status change to history
+      vendor.statusHistory = [
+        ...(vendor.statusHistory || []),
+        {
+          previousStatus,
+          newStatus: status,
+          changedAt: new Date(),
+          changedBy: req.user.id
+        }
+      ];
+      
+      await vendor.save();
+      
+      // Send real-time notification about vendor status change
+      const realtimeService = require('../services/realtimeService');
+      realtimeService.notifyVendorStatusChange(
+        vendor._id.toString(),
+        status,
+        req.user.id
+      );
+      
+      console.log('Vendor status updated successfully:', {
+        vendorId: id,
+        newStatus: status,
+        previousStatus,
+        adminId: req.user.id
+      });
+      
+      res.json({
+        success: true,
+        message: 'Vendor status updated successfully',
+        data: {
+          id: vendor._id,
+          status: vendor.status,
+          updatedAt: vendor.updatedAt
+        }
+      });
+    } catch (error) {
+      console.error('Error updating vendor status:', error);
+      res.status(500).json({
+        error: true,
+        message: 'Failed to update vendor status',
+        code: 'UPDATE_STATUS_ERROR'
+      });
+    }
+  })
+);
 
 // GET /api/vendors - Get all vendors
 router.get('/', auth.authenticateToken, enforceVendorScope('vendor'), asyncHandler(async (req, res) => {
@@ -203,113 +481,6 @@ router.post('/:id/application/submit', auth.authenticateToken, enforceVendorScop
   }
 }));
 
-// PATCH /api/vendors/applications/:id/status - Update application status (Admin only)
-router.patch('/:id/status', 
-  auth.authenticateToken, 
-  auth.requireRole(['elika_admin']), 
-  sensitiveOperationsLimiter, 
-  asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const { status } = req.body;
-    
-    console.log('Updating vendor status:', id, status);
-    
-    if (!isValidObjectId(id)) {
-      return res.status(400).json({
-        error: true,
-        message: 'Invalid vendor ID format',
-        code: 'INVALID_ID_FORMAT'
-      });
-    }
-    
-    if (!['pending', 'active', 'inactive', 'rejected'].includes(status)) {
-      return res.status(400).json({
-        error: true,
-        message: 'Invalid status value',
-        code: 'INVALID_STATUS'
-      });
-    }
-    
-    try {
-      const vendor = await Vendor.findByIdAndUpdate(
-        id,
-        { status, updatedAt: new Date() },
-        { new: true, runValidators: true }
-      );
-      
-      if (!vendor) {
-        return res.status(404).json({
-          error: true,
-          message: 'Vendor not found',
-          code: 'VENDOR_NOT_FOUND'
-        });
-      }
-      
-      res.json({
-        success: true,
-        message: 'Vendor status updated successfully'
-      });
-    } catch (error) {
-      console.error('Error updating vendor status:', error);
-      res.status(500).json({
-        error: true,
-        message: 'Failed to update vendor status',
-        code: 'UPDATE_STATUS_ERROR'
-      });
-    }
-  })
-);
-
-router.patch('/applications/:id/status', auth.authenticateToken, auth.requireRole(['elika_admin']), sensitiveOperationsLimiter, asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const { status, reviewNotes } = req.body;
-  
-  console.log('Updating application status:', id, status);
-  
-  if (!isValidObjectId(id)) {
-    return res.status(400).json({
-      error: true,
-      message: 'Invalid application ID format',
-      code: 'INVALID_ID_FORMAT'
-    });
-  }
-  
-  try {
-    const vendor = await Vendor.findById(id);
-    
-    if (!vendor) {
-      return res.status(404).json({
-        error: true,
-        message: 'Application not found',
-        code: 'APPLICATION_NOT_FOUND'
-      });
-    }
-    
-    // Update application status
-    vendor.application = {
-      ...vendor.application,
-      status,
-      reviewedAt: new Date(),
-      reviewedBy: req.user.id,
-      reviewNotes: reviewNotes || vendor.application?.reviewNotes
-    };
-    
-    await vendor.save();
-    
-    res.json({
-      success: true,
-      message: 'Application status updated successfully'
-    });
-  } catch (error) {
-    console.error('Error updating application status:', error);
-    res.status(500).json({
-      error: true,
-      message: 'Failed to update application status',
-      code: 'UPDATE_APPLICATION_ERROR'
-    });
-  }
-}));
-
 // GET /api/vendors/:id/documents - Get vendor documents
 router.get('/:id/documents', auth.authenticateToken, enforceVendorScope('vendor'), asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -389,7 +560,7 @@ router.get('/:id', auth.authenticateToken, enforceVendorScope('vendor'), asyncHa
   }
 }));
 
-// POST /api/vendors - Create new vendor
+// POST /api/vendors - Create new vendor with real-time notification
 router.post('/', auth.authenticateToken, asyncHandler(async (req, res) => {
   console.log('Creating new vendor:', req.body);
   console.log('User from request:', req.user);
@@ -447,6 +618,10 @@ router.post('/', auth.authenticateToken, asyncHandler(async (req, res) => {
     }
     
     await vendor.populate('createdBy', 'email profile');
+    
+    // Send real-time notification to admins about new vendor registration
+    const realtimeService = require('../services/realtimeService');
+    realtimeService.notifyNewVendorRegistration(vendor, user);
     
     res.status(201).json({
       success: true,

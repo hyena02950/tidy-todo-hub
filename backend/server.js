@@ -1,165 +1,147 @@
 
 const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
-const path = require('path');
-const { generalLimiter } = require('./middleware/rateLimiter');
-const { securityHeaders, additionalHeaders } = require('./middleware/securityHeaders');
-const { globalErrorHandler, notFoundHandler } = require('./middleware/errorHandler');
-const env = require('./config/env');
+const connectDB = require('./config/database');
+const config = require('./config/env');
+const requestId = require('./middleware/requestId');
+const securityHeaders = require('./middleware/securityHeaders');
+const errorHandler = require('./middleware/errorHandler');
+const { router: realtimeRouter, handleWebSocketUpgrade } = require('./routes/realtime');
 
-// Load environment variables
-require('dotenv').config();
-
-// Import connectDB function (handling ES6 module)
-const connectDB = require('./config/database').default || require('./config/database');
+// Import routes
+const authRoutes = require('./routes/auth');
+const vendorRoutes = require('./routes/vendors');
+const dashboardRoutes = require('./routes/dashboard');
+const userRoutes = require('./routes/users');
+const candidateRoutes = require('./routes/candidates');
+const jobRoutes = require('./routes/jobs');
+const interviewRoutes = require('./routes/interviews');
+const invoiceRoutes = require('./routes/invoices');
+const fileRoutes = require('./routes/files');
+const secureFileRoutes = require('./routes/secureFiles');
+const vendorDocumentRoutes = require('./routes/vendorDocuments');
+const vendorDocumentReminderRoutes = require('./routes/vendorDocumentReminders');
+const notificationRoutes = require('./routes/notifications');
+const reminderRoutes = require('./routes/reminders');
+const analyticsRoutes = require('./routes/analytics');
 
 const app = express();
+const server = http.createServer(app);
 
-// Request ID middleware for tracking
-const requestId = require('./middleware/requestId');
-app.use(requestId);
+// Create WebSocket server
+const wss = new WebSocket.Server({ noServer: true });
+
+// Connect to database
+connectDB();
 
 // Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+    },
+  },
+  crossOriginEmbedderPolicy: false
+}));
+
+app.use(compression());
+app.use(requestId);
 app.use(securityHeaders);
-app.use(additionalHeaders);
 
 // CORS configuration
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (env.CORS_ORIGINS.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`CORS blocked request from origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+app.use(cors({
+  origin: config.CORS_ORIGINS,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-ID'],
-  exposedHeaders: ['X-Request-ID']
-};
-
-app.use(cors(corsOptions));
-
-// Rate limiting
-app.use('/api/', generalLimiter);
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID']
+}));
 
 // Body parsing middleware
-app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Remove public static access to uploads for security
-// Files are now served through authenticated endpoints only
-
-// Serve React static files
-const distPath = path.join(__dirname, '..', 'dist');
-app.use(express.static(distPath));
-
-// API Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/users', require('./routes/users'));
-app.use('/api/vendors', require('./routes/vendors'));
-app.use('/api/vendors', require('./routes/vendorDocuments'));
-app.use('/api/vendors', require('./routes/vendorDocumentReminders'));
-app.use('/api/jobs', require('./routes/jobs'));
-app.use('/api/candidates', require('./routes/candidates'));
-app.use('/api/interviews', require('./routes/interviews'));
-app.use('/api/invoices', require('./routes/invoices'));
-app.use('/api/dashboard', require('./routes/dashboard'));
-app.use('/api/files', require('./routes/files'));
-app.use('/api/secure-files', require('./routes/secureFiles'));
-app.use('/api/notifications', require('./routes/notifications'));
-app.use('/api/reminders', require('./routes/reminders'));
-app.use('/api/analytics', require('./routes/analytics'));
-
-// 404 handler for API routes
-app.use('/api/*', notFoundHandler);
-
-// Cleanup job for expired tokens (run every hour)
-setInterval(async () => {
-  try {
-    const authService = require('./services/authService');
-    await authService.cleanupExpiredTokens();
-    console.log('Expired tokens cleaned up');
-  } catch (error) {
-    console.error('Error cleaning up expired tokens:', error);
-  }
-}, 60 * 60 * 1000); // 1 hour
+// API routes
+app.use('/api/auth', authRoutes);
+app.use('/api/vendors', vendorRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/candidates', candidateRoutes);
+app.use('/api/jobs', jobRoutes);
+app.use('/api/interviews', interviewRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/files', fileRoutes);
+app.use('/api/secure-files', secureFileRoutes);
+app.use('/api/vendor-documents', vendorDocumentRoutes);
+app.use('/api/vendor-document-reminders', vendorDocumentReminderRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/reminders', reminderRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/realtime', realtimeRouter);
 
 // Health check endpoint
-app.get('/api/health', async (req, res) => {
-  try {
-    const mongoose = require('mongoose');
-    const dbState = mongoose.connection.readyState;
-    const dbStatus = dbState === 1 ? 'connected' : dbState === 2 ? 'connecting' : 'disconnected';
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: config.NODE_ENV
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    error: true,
+    message: 'Route not found',
+    code: 'ROUTE_NOT_FOUND'
+  });
+});
+
+// Error handling middleware
+app.use(errorHandler);
+
+// Handle WebSocket upgrade
+server.on('upgrade', (request, socket, head) => {
+  handleWebSocketUpgrade(request, socket, head, wss);
+});
+
+// Graceful shutdown
+const gracefulShutdown = () => {
+  console.log('Received shutdown signal, closing server gracefully...');
+  
+  server.close(() => {
+    console.log('HTTP server closed');
     
-    res.json({
-      status: 'OK',
-      timestamp: new Date().toISOString(),
-      database: dbStatus,
-      environment: process.env.NODE_ENV || 'development'
+    // Close all WebSocket connections
+    wss.clients.forEach((ws) => {
+      ws.terminate();
     });
-  } catch (error) {
-    res.status(500).json({
-      status: 'ERROR',
-      message: error.message
-    });
-  }
-});
-
-// Serve React app for all non-API routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
-});
-
-// Error handling middleware (must be last)
-app.use(globalErrorHandler);
-
-// Global error handlers
-process.on('uncaughtException', (error) => {
-  console.error(`${new Date().toISOString()}: Uncaught Exception:`, error);
-  // In production, you might want to restart the process
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error(`${new Date().toISOString()}: Unhandled Rejection at:`, promise, 'reason:', reason);
-  // In production, you might want to restart the process
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
-});
-
-// Start server function
-const startServer = async () => {
-  try {
-    // Connect to database first
-    console.log(`${new Date().toISOString()}: Connecting to database...`);
-    await connectDB();
-    console.log(`${new Date().toISOString()}: ✅ Database connected successfully`);
-
-    const PORT = process.env.PORT || 3001;
     
-    app.listen(PORT, () => {
-      console.log(`${new Date().toISOString()}: ✅ Server is running on port ${PORT}`);
-      console.log(`${new Date().toISOString()}: Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`${new Date().toISOString()}: Health check: http://localhost:${PORT}/api/health`);
-    });
-  } catch (error) {
-    console.error(`${new Date().toISOString()}: ❌ Failed to start server:`, error);
+    process.exit(0);
+  });
+  
+  // Force close after 30 seconds
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
     process.exit(1);
-  }
+  }, 30000);
 };
 
-// Start the server
-startServer();
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
 
-module.exports = app;
+// Start server
+server.listen(config.PORT, () => {
+  console.log(`Server running on port ${config.PORT} in ${config.NODE_ENV} mode`);
+  console.log(`WebSocket server ready for connections`);
+});
+
+module.exports = { app, server };
