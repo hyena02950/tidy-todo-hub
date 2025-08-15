@@ -1,3 +1,4 @@
+
 const AppError = require('../utils/AppError');
 
 // Global error handling middleware
@@ -5,11 +6,23 @@ const globalErrorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
 
-  // Log error details
+  // Log error details with more context
   console.error(`${new Date().toISOString()}: Error ${req.id ? `[${req.id}]` : ''}: ${error.message}`);
+  console.error('Request details:', {
+    method: req.method,
+    url: req.originalUrl,
+    body: req.body,
+    query: req.query,
+    params: req.params
+  });
   
   if (process.env.NODE_ENV === 'development') {
     console.error('Stack trace:', err.stack);
+  }
+
+  // Enhanced validation error handling
+  if (error.code === 'VALIDATION_ERROR' && error.details) {
+    console.error('Detailed validation errors:', JSON.stringify(error.details, null, 2));
   }
 
   // Mongoose bad ObjectId
@@ -67,10 +80,15 @@ const globalErrorHandler = (err, req, res, next) => {
     code: error.code || 'INTERNAL_ERROR'
   };
 
+  // Add validation details if available
+  if (error.details && Array.isArray(error.details)) {
+    response.details = error.details;
+  }
+
   // Add additional details in development
   if (process.env.NODE_ENV === 'development') {
     response.stack = err.stack;
-    response.details = error;
+    response.fullError = error;
   }
 
   // Add request ID if available

@@ -16,6 +16,35 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    // Handle temporary 2FA setup tokens
+    if (token.startsWith('temp_')) {
+      const userId = token.replace('temp_', '');
+      const user = await User.findById(userId).select('-password');
+      
+      if (!user || !user.isActive) {
+        return res.status(401).json({
+          error: true,
+          message: 'Invalid temporary token',
+          code: 'INVALID_TOKEN'
+        });
+      }
+
+      req.user = {
+        id: user._id.toString(),
+        _id: user._id,
+        email: user.email,
+        roles: user.roles,
+        profile: user.profile,
+        isActive: user.isActive,
+        emailVerified: user.emailVerified,
+        tokenVersion: user.tokenVersion || 0,
+        isTemporary: true
+      };
+      req.userRoles = user.roles;
+      
+      return next();
+    }
+
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET);

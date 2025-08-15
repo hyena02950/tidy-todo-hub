@@ -1,3 +1,4 @@
+
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const speakeasy = require('speakeasy');
@@ -245,7 +246,8 @@ class AuthService {
 
     const secret = speakeasy.generateSecret({
       name: `Elika Vendor Portal (${user.email})`,
-      issuer: 'Elika Vendor Portal'
+      issuer: 'Elika Vendor Portal',
+      length: 32
     });
 
     // Generate backup codes
@@ -265,9 +267,16 @@ class AuthService {
       { upsert: true }
     );
 
+    // Generate QR code data URL manually
+    const qrCodeData = secret.otpauth_url;
+    
+    console.log('2FA Setup for user:', userId);
+    console.log('Secret generated:', secret.base32);
+    console.log('QR Code URL:', qrCodeData);
+
     return {
       secret: secret.base32,
-      qrCode: secret.otpauth_url,
+      qrCode: qrCodeData, // This is the otpauth:// URL that can be used to generate QR code
       backupCodes: backupCodes.map(bc => bc.code),
       required: requiresTwoFA
     };

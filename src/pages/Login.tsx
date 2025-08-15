@@ -9,7 +9,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LogIn, UserPlus, Eye, EyeOff } from "lucide-react";
+import { TwoFactorSetup } from "@/components/TwoFactorSetup";
+import { LogIn, UserPlus, Eye, EyeOff, Shield } from "lucide-react";
 
 export default function Login() {
   const { signIn, signUp, user, loading } = useAuth();
@@ -19,10 +20,14 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [activeTab, setActiveTab] = useState("login");
+  const [requires2FA, setRequires2FA] = useState(false);
+  const [requires2FASetup, setRequires2FASetup] = useState(false);
+  const [tempUserId, setTempUserId] = useState<string | null>(null);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -38,26 +43,65 @@ export default function Login() {
       return;
     }
 
+    if (requires2FA && !twoFactorCode) {
+      setError("Please enter your two-factor authentication code");
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
-    const { error } = await signIn(email, password);
-    
-    if (error) {
-      setError(error.message);
-      toast({
-        title: "Sign In Failed",
-        description: error.message,
-        variant: "destructive",
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          twoFactorToken: twoFactorCode || undefined // Don't send empty string
+        }),
       });
-    } else {
-      toast({
-        title: "Welcome back!",
-        description: "You have successfully signed in.",
-      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.code === 'TWO_FA_REQUIRED') {
+          setRequires2FA(true);
+          setTempUserId(data.tempUserId);
+          setError("Please enter your two-factor authentication code");
+          return;
+        } else if (data.code === 'TWO_FA_SETUP_REQUIRED') {
+          setRequires2FASetup(true);
+          setTempUserId(data.tempUserId);
+          setError(null);
+          return;
+        } else {
+          setError(data.message);
+          return;
+        }
+      }
+
+      // Success case - we have tokens and user data
+      if (data.accessToken && data.refreshToken && data.user) {
+        // Use the signIn method to properly set tokens and user
+        const { error } = await signIn(email, password);
+        
+        if (!error) {
+          toast({
+            title: "Welcome back!",
+            description: "You have successfully signed in.",
+          });
+          // Navigation will be handled by useEffect when user state updates
+        }
+      }
+    } catch (error: any) {
+      console.error('Login error:', error);
+      setError(error.message || "An unexpected error occurred");
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    setIsSubmitting(false);
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
@@ -81,7 +125,7 @@ export default function Login() {
     setError(null);
 
     try {
-      const { error } = await signUp(email, password);
+      const { error } = await signUp(email, password, companyName);
       
       if (error) {
         setError(error.message);
@@ -95,7 +139,7 @@ export default function Login() {
         
         toast({
           title: "Account Created!",
-          description: "Your account has been created successfully. You can now create your vendor profile.",
+          description: "Your account has been created successfully with vendor admin role.",
         });
         setActiveTab("login");
       }
@@ -107,6 +151,25 @@ export default function Login() {
     setIsSubmitting(false);
   };
 
+  const handle2FASetupComplete = () => {
+    setRequires2FASetup(false);
+    setTempUserId(null);
+    setRequires2FA(false);
+    setTwoFactorCode("");
+    toast({
+      title: "2FA Setup Complete",
+      description: "You can now sign in with your credentials.",
+    });
+  };
+
+  const handle2FASetupCancel = () => {
+    setRequires2FASetup(false);
+    setRequires2FA(false);
+    setTempUserId(null);
+    setTwoFactorCode("");
+    setError(null);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -114,6 +177,19 @@ export default function Login() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
           <p className="mt-2 text-muted-foreground">Loading...</p>
         </div>
+      </div>
+    );
+  }
+
+  // Show 2FA setup if required
+  if (requires2FASetup && tempUserId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/20 p-4">
+        <TwoFactorSetup
+          tempUserId={tempUserId}
+          onSetupComplete={handle2FASetupComplete}
+          onCancel={handle2FASetupCancel}
+        />
       </div>
     );
   }
@@ -170,6 +246,27 @@ export default function Login() {
                     </Button>
                   </div>
                 </div>
+
+                {requires2FA && (
+                  <div className="space-y-2">
+                    <Label htmlFor="two-factor-code">
+                      <Shield className="w-4 h-4 inline mr-2" />
+                      Two-Factor Code
+                    </Label>
+                    <Input
+                      id="two-factor-code"
+                      type="text"
+                      placeholder="123456"
+                      value={twoFactorCode}
+                      onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="text-center text-lg tracking-wider"
+                      maxLength={6}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Enter the 6-digit code from your authenticator app
+                    </p>
+                  </div>
+                )}
 
                 {error && (
                   <Alert variant="destructive">

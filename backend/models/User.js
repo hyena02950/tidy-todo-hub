@@ -1,4 +1,3 @@
-
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -24,10 +23,7 @@ const userSchema = new mongoose.Schema({
     vendorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',
-      required: function() {
-        // Only require vendorId for vendor roles
-        return ['vendor_admin', 'vendor_recruiter'].includes(this.role);
-      }
+      required: false
     }
   }],
   profile: {

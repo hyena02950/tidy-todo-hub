@@ -9,7 +9,7 @@ const auth = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const authService = require('../services/authService');
-const emailService = require('../services/emailService');
+const emailService = require('../utils/emailService');
 const speakeasy = require('speakeasy');
 
 const router = express.Router();
@@ -18,7 +18,7 @@ const router = express.Router();
 router.post('/login', validateBody(loginSchema), asyncHandler(async (req, res) => {
   const { email, password, twoFactorToken } = req.body;
 
-  console.log('Login attempt:', { email });
+  console.log('Login attempt:', { email, has2FA: !!twoFactorToken });
 
   const user = await User.findOne({ email: email.toLowerCase() });
   if (!user || !user.isActive) {
@@ -39,34 +39,45 @@ router.post('/login', validateBody(loginSchema), asyncHandler(async (req, res) =
   const requires2FA = await authService.requires2FA(user._id);
   const has2FAEnabled = await authService.has2FAEnabled(user._id);
 
-  if (requires2FA && has2FAEnabled) {
-    // Verify 2FA token
-    if (!twoFactorToken) {
-      return res.status(400).json({
-        error: true,
-        message: 'Two-factor token required',
-        code: 'TWO_FA_REQUIRED'
-      });
-    }
+  console.log('2FA Status:', { requires2FA, has2FAEnabled, userRoles: user.roles.map(r => r.role) });
 
-    const verified = authService.verify2FAToken(user._id, twoFactorToken);
-    if (!verified) {
-      throw new AppError('Invalid two-factor token', 401, 'INVALID_TWO_FA_TOKEN');
-    }
-  } else if (requires2FA && !has2FAEnabled) {
+  if (requires2FA && !has2FAEnabled) {
     return res.status(403).json({
       error: true,
       message: '2FA setup required for this role',
-      code: 'TWO_FA_SETUP_REQUIRED'
+      code: 'TWO_FA_SETUP_REQUIRED',
+      requires2FASetup: true,
+      tempUserId: user._id
     });
   }
 
-  // Generate tokens
-  const accessToken = authService.generateAccessToken(user._id, user.tokenVersion || 0);
-  const refreshToken = authService.generateRefreshToken(user._id);
+  if (requires2FA && has2FAEnabled) {
+    // Only require 2FA token if 2FA is enabled
+    if (!twoFactorToken || twoFactorToken.trim() === '') {
+      return res.status(400).json({
+        error: true,
+        message: 'Two-factor token required',
+        code: 'TWO_FA_REQUIRED',
+        requires2FA: true,
+        tempUserId: user._id
+      });
+    }
 
-  // Save refresh token
-  await authService.saveRefreshToken(user._id, refreshToken);
+    try {
+      const verified = await authService.verify2FA(user._id, twoFactorToken);
+      if (!verified) {
+        throw new AppError('Invalid two-factor token', 401, 'INVALID_TWO_FA_TOKEN');
+      }
+    } catch (error) {
+      console.error('2FA verification failed:', error);
+      throw new AppError('Invalid two-factor token', 401, 'INVALID_TWO_FA_TOKEN');
+    }
+  }
+
+  // Generate tokens using the new auth service methods
+  const deviceInfo = authService.getDeviceInfo(req);
+  const accessToken = authService.generateAccessToken(user._id, user.tokenVersion || 0);
+  const refreshToken = await authService.generateRefreshToken(user._id, deviceInfo);
 
   // Update last login
   user.lastLogin = new Date();
@@ -87,7 +98,7 @@ router.post('/login', validateBody(loginSchema), asyncHandler(async (req, res) =
   });
 }));
 
-// Register route
+// Register route - Auto-assign vendor_admin role
 router.post('/register', validateBody(registerSchema), asyncHandler(async (req, res) => {
   const { email, password, companyName, contactPerson } = req.body;
 
@@ -99,7 +110,7 @@ router.post('/register', validateBody(registerSchema), asyncHandler(async (req, 
     throw new AppError('User already exists with this email', 400, 'USER_EXISTS');
   }
 
-  // Create user without any roles initially
+  // Create user with vendor_admin role by default
   const user = new User({
     email: email.toLowerCase(),
     password,
@@ -107,18 +118,18 @@ router.post('/register', validateBody(registerSchema), asyncHandler(async (req, 
       companyName: companyName || '',
       contactPerson: contactPerson || email.split('@')[0]
     },
-    roles: [] // Start with no roles - they'll get assigned when vendor profile is created
+    roles: [{
+      role: 'vendor_admin'
+    }] // Auto-assign vendor_admin role
   });
 
   await user.save();
-  console.log('User created successfully:', user._id);
+  console.log('User created successfully with vendor_admin role:', user._id);
 
-  // Generate tokens
+  // Generate tokens using the new auth service methods
+  const deviceInfo = authService.getDeviceInfo(req);
   const accessToken = authService.generateAccessToken(user._id, user.tokenVersion || 0);
-  const refreshToken = authService.generateRefreshToken(user._id);
-
-  // Save refresh token
-  await authService.saveRefreshToken(user._id, refreshToken);
+  const refreshToken = await authService.generateRefreshToken(user._id, deviceInfo);
 
   // Update last login
   user.lastLogin = new Date();
@@ -127,7 +138,7 @@ router.post('/register', validateBody(registerSchema), asyncHandler(async (req, 
   console.log('Registration completed for:', user.email);
 
   res.status(201).json({
-    message: 'User registered successfully',
+    message: 'User registered successfully with vendor admin role',
     accessToken,
     refreshToken,
     user: {
@@ -149,47 +160,34 @@ router.post('/refresh-token', validateBody(refreshTokenSchema), asyncHandler(asy
     throw new AppError('Refresh token is required', 400, 'REFRESH_TOKEN_REQUIRED');
   }
 
-  const userId = authService.verifyRefreshToken(refreshToken);
-  if (!userId) {
-    throw new AppError('Invalid refresh token', 401, 'INVALID_REFRESH_TOKEN');
-  }
+  // Use the new refresh token method
+  const deviceInfo = authService.getDeviceInfo(req);
+  const result = await authService.refreshAccessToken(refreshToken, deviceInfo);
 
-  const user = await User.findById(userId);
-  if (!user || !user.isActive) {
-    throw new AppError('User not found or inactive', 404, 'USER_NOT_FOUND');
-  }
-
-  // Check if refresh token exists in database
-  const storedRefreshToken = await authService.getRefreshToken(userId);
-  if (storedRefreshToken !== refreshToken) {
-    console.warn(`Possible refresh token reuse detected for user ${userId}`);
-    throw new AppError('Invalid refresh token', 401, 'INVALID_REFRESH_TOKEN');
-  }
-
-  // Generate new tokens
-  const accessToken = authService.generateAccessToken(userId, user.tokenVersion || 0);
-  const newRefreshToken = authService.generateRefreshToken(userId);
-
-  // Replace old refresh token with new one
-  await authService.replaceRefreshToken(userId, refreshToken, newRefreshToken);
-
-  console.log('Token refreshed successfully for:', user.email);
+  console.log('Token refreshed successfully for user:', result.user.email);
 
   res.json({
     message: 'Token refreshed successfully',
-    accessToken,
-    refreshToken: newRefreshToken
+    accessToken: result.accessToken,
+    refreshToken: result.refreshToken,
+    user: result.user
   });
 }));
 
 // Logout route
 router.post('/logout', auth.authenticateToken, asyncHandler(async (req, res) => {
   const userId = req.user.id;
+  const { refreshToken, logoutAllDevices } = req.body;
 
   console.log('Attempting to logout user:', userId);
 
-  // Remove refresh token from database
-  await authService.deleteRefreshToken(userId);
+  if (logoutAllDevices) {
+    // Revoke all user tokens
+    await authService.revokeAllUserTokens(userId, 'User logout all devices');
+  } else if (refreshToken) {
+    // Revoke specific refresh token
+    await authService.revokeRefreshToken(refreshToken, 'User logout');
+  }
 
   console.log('Logout successful for user:', userId);
 
@@ -201,24 +199,25 @@ router.post('/logout', auth.authenticateToken, asyncHandler(async (req, res) => 
 // Forgot password route
 router.post('/forgot-password', validateBody(forgotPasswordSchema), asyncHandler(async (req, res) => {
   const { email } = req.body;
+  const deviceInfo = authService.getDeviceInfo(req);
 
   console.log('Attempting forgot password for email:', email);
 
-  const user = await User.findOne({ email: email.toLowerCase() });
-  if (!user) {
-    console.log('User not found for forgot password:', email);
+  const result = await authService.generatePasswordResetToken(
+    email, 
+    deviceInfo.ipAddress, 
+    deviceInfo.userAgent
+  );
+
+  if (!result) {
+    // Don't reveal if email exists
     return res.json({ message: 'If an account with that email exists, a password reset link has been sent.' });
   }
 
-  // Create reset token
-  const resetToken = crypto.randomBytes(32).toString('hex');
-  user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-  user.resetPasswordExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-  await user.save();
+  const { token, user } = result;
 
   // Send email with reset token
-  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${token}`;
   const message = `You are receiving this email because you (or someone else) have requested the reset of a password. Please click on the following link, or paste this into your browser to complete the process:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email and your password will remain unchanged.`;
 
   try {
@@ -233,11 +232,6 @@ router.post('/forgot-password', validateBody(forgotPasswordSchema), asyncHandler
     res.json({ message: 'If an account with that email exists, a password reset link has been sent.' });
   } catch (error) {
     console.error('Error sending password reset email:', error);
-
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
-    await user.save();
-
     throw new AppError('There was an error sending the email. Please try again later.', 500, 'EMAIL_SEND_ERROR');
   }
 }));
@@ -248,22 +242,7 @@ router.post('/reset-password', validateBody(resetPasswordSchema), asyncHandler(a
 
   console.log('Attempting reset password with token:', token);
 
-  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-
-  const user = await User.findOne({
-    resetPasswordToken: hashedToken,
-    resetPasswordExpires: { $gt: Date.now() }
-  });
-
-  if (!user) {
-    throw new AppError('Invalid or expired token', 400, 'INVALID_TOKEN');
-  }
-
-  user.password = password;
-  user.resetPasswordToken = undefined;
-  user.resetPasswordExpires = undefined;
-  user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate existing tokens
-  await user.save();
+  const user = await authService.resetPassword(token, password);
 
   console.log('Password reset successfully for:', user.email);
 
@@ -276,21 +255,9 @@ router.post('/verify-email', validateBody(verifyEmailSchema), asyncHandler(async
 
   console.log('Attempting email verification with token:', token);
 
-  const user = await User.findOne({
-    emailVerificationToken: token,
-    emailVerificationExpires: { $gt: Date.now() }
-  });
+  const userId = await authService.verifyEmailToken(token);
 
-  if (!user) {
-    throw new AppError('Invalid or expired token', 400, 'INVALID_TOKEN');
-  }
-
-  user.emailVerified = true;
-  user.emailVerificationToken = undefined;
-  user.emailVerificationExpires = undefined;
-  await user.save();
-
-  console.log('Email verified successfully for:', user.email);
+  console.log('Email verified successfully for user:', userId);
 
   res.json({ message: 'Email verified successfully' });
 }));
@@ -307,14 +274,11 @@ router.post('/request-verification-email', auth.authenticateToken, asyncHandler(
     return res.status(400).json({ message: 'Email already verified' });
   }
 
-  // Create verification token
-  const verificationToken = crypto.randomBytes(32).toString('hex');
-  user.emailVerificationToken = verificationToken;
-  user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-  await user.save();
+  // Generate verification token using auth service
+  const token = await authService.generateEmailVerificationToken(user._id, user.email);
 
   // Send email with verification token
-  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${verificationToken}`;
+  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${token}`;
   const message = `Please click on the following link, or paste this into your browser to verify your email address:\n\n${verificationUrl}\n\nIf you did not request this, please ignore this email.`;
 
   try {
@@ -329,57 +293,34 @@ router.post('/request-verification-email', auth.authenticateToken, asyncHandler(
     res.json({ message: 'Verification email sent' });
   } catch (error) {
     console.error('Error sending verification email:', error);
-
-    user.emailVerificationToken = undefined;
-    user.emailVerificationExpires = undefined;
-    await user.save();
-
     throw new AppError('There was an error sending the email. Please try again later.', 500, 'EMAIL_SEND_ERROR');
   }
 }));
 
-// Generate 2FA secret route
-router.get('/generate-2fa-secret', auth.authenticateToken, asyncHandler(async (req, res) => {
-  const userId = req.user.id;
-
-  console.log('Generating 2FA secret for user:', userId);
-
-  const secret = speakeasy.generateSecret({ length: 20 });
-
-  // Store secret temporarily (e.g., in memory or cache)
-  authService.store2FASecret(userId, secret.base32);
-
-  res.json({
-    secret: secret.base32,
-    qrCodeUrl: secret.otpauth_url
-  });
-}));
-
 // Setup 2FA route
-router.post('/setup-2fa', auth.authenticateToken, validateBody(setup2FASchema), asyncHandler(async (req, res) => {
-  const { token } = req.body;
+router.post('/setup-2fa', auth.authenticateToken, asyncHandler(async (req, res) => {
   const userId = req.user.id;
 
   console.log('Setting up 2FA for user:', userId);
 
-  const secret = authService.get2FASecret(userId);
-  if (!secret) {
-    throw new AppError('2FA secret not found. Please generate a new secret.', 400, 'SECRET_NOT_FOUND');
-  }
+  const result = await authService.setup2FA(userId);
 
-  const verified = speakeasy.totp.verify({
-    secret: secret,
-    encoding: 'base32',
-    token: token,
-    window: 2 // Allow a window of 2 tokens in either direction
+  res.json({
+    secret: result.secret,
+    qrCode: result.qrCode,
+    backupCodes: result.backupCodes,
+    required: result.required
   });
+}));
 
-  if (!verified) {
-    throw new AppError('Invalid two-factor token', 401, 'INVALID_TWO_FA_TOKEN');
-  }
+// Enable 2FA route
+router.post('/enable-2fa', auth.authenticateToken, validateBody(setup2FASchema), asyncHandler(async (req, res) => {
+  const { token } = req.body;
+  const userId = req.user.id;
 
-  // Enable 2FA for user
-  await authService.enable2FA(userId, secret);
+  console.log('Enabling 2FA for user:', userId);
+
+  await authService.enable2FA(userId, token);
 
   console.log('2FA enabled successfully for user:', userId);
 
@@ -388,12 +329,12 @@ router.post('/setup-2fa', auth.authenticateToken, validateBody(setup2FASchema), 
 
 // Disable 2FA route
 router.post('/disable-2fa', auth.authenticateToken, asyncHandler(async (req, res) => {
+  const { token } = req.body;
   const userId = req.user.id;
 
   console.log('Disabling 2FA for user:', userId);
 
-  // Disable 2FA for user
-  await authService.disable2FA(userId);
+  await authService.disable2FA(userId, token);
 
   console.log('2FA disabled successfully for user:', userId);
 

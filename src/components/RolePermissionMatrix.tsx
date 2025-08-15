@@ -15,28 +15,63 @@ interface RolePermission {
   permission: PermissionType;
 }
 
-// Default permissions matrix for demonstration
+// Enhanced permissions matrix with full elika_admin access
 const defaultPermissions: RolePermission[] = [
-  // Elika Admin - Full access
+  // Elika Admin - FULL ACCESS TO EVERYTHING
   { role: 'elika_admin', resource: 'candidates', permission: 'read' },
   { role: 'elika_admin', resource: 'candidates', permission: 'create' },
   { role: 'elika_admin', resource: 'candidates', permission: 'update' },
   { role: 'elika_admin', resource: 'candidates', permission: 'delete' },
+  { role: 'elika_admin', resource: 'candidates', permission: 'approve' },
+  { role: 'elika_admin', resource: 'candidates', permission: 'reject' },
+  
   { role: 'elika_admin', resource: 'jobs', permission: 'read' },
   { role: 'elika_admin', resource: 'jobs', permission: 'create' },
   { role: 'elika_admin', resource: 'jobs', permission: 'update' },
   { role: 'elika_admin', resource: 'jobs', permission: 'delete' },
+  { role: 'elika_admin', resource: 'jobs', permission: 'approve' },
+  { role: 'elika_admin', resource: 'jobs', permission: 'reject' },
+  
+  { role: 'elika_admin', resource: 'invoices', permission: 'read' },
+  { role: 'elika_admin', resource: 'invoices', permission: 'create' },
+  { role: 'elika_admin', resource: 'invoices', permission: 'update' },
+  { role: 'elika_admin', resource: 'invoices', permission: 'delete' },
+  { role: 'elika_admin', resource: 'invoices', permission: 'approve' },
+  { role: 'elika_admin', resource: 'invoices', permission: 'reject' },
+  
+  { role: 'elika_admin', resource: 'documents', permission: 'read' },
+  { role: 'elika_admin', resource: 'documents', permission: 'create' },
+  { role: 'elika_admin', resource: 'documents', permission: 'update' },
+  { role: 'elika_admin', resource: 'documents', permission: 'delete' },
+  { role: 'elika_admin', resource: 'documents', permission: 'approve' },
+  { role: 'elika_admin', resource: 'documents', permission: 'reject' },
+  
   { role: 'elika_admin', resource: 'vendors', permission: 'read' },
   { role: 'elika_admin', resource: 'vendors', permission: 'create' },
   { role: 'elika_admin', resource: 'vendors', permission: 'update' },
   { role: 'elika_admin', resource: 'vendors', permission: 'delete' },
+  { role: 'elika_admin', resource: 'vendors', permission: 'approve' },
+  { role: 'elika_admin', resource: 'vendors', permission: 'reject' },
+  
   { role: 'elika_admin', resource: 'users', permission: 'read' },
   { role: 'elika_admin', resource: 'users', permission: 'create' },
   { role: 'elika_admin', resource: 'users', permission: 'update' },
+  { role: 'elika_admin', resource: 'users', permission: 'delete' },
+  { role: 'elika_admin', resource: 'users', permission: 'approve' },
+  { role: 'elika_admin', resource: 'users', permission: 'reject' },
+  
   { role: 'elika_admin', resource: 'roles', permission: 'read' },
   { role: 'elika_admin', resource: 'roles', permission: 'create' },
   { role: 'elika_admin', resource: 'roles', permission: 'update' },
+  { role: 'elika_admin', resource: 'roles', permission: 'delete' },
+  { role: 'elika_admin', resource: 'roles', permission: 'approve' },
+  { role: 'elika_admin', resource: 'roles', permission: 'reject' },
+  
   { role: 'elika_admin', resource: 'analytics', permission: 'read' },
+  { role: 'elika_admin', resource: 'analytics', permission: 'create' },
+  { role: 'elika_admin', resource: 'analytics', permission: 'update' },
+  { role: 'elika_admin', resource: 'analytics', permission: 'delete' },
+  { role: 'elika_admin', resource: 'analytics', permission: 'view' },
   
   // Vendor Admin - Limited access to their vendor data
   { role: 'vendor_admin', resource: 'candidates', permission: 'read' },
@@ -159,7 +194,7 @@ export const RolePermissionMatrix = () => {
         <CardTitle>Role Permissions Matrix</CardTitle>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Info className="h-4 w-4" />
-          <span>Current permissions are managed via database RLS policies. This matrix shows the intended access patterns.</span>
+          <span>Elika Admin has full system access. Other roles have limited permissions based on their responsibilities.</span>
         </div>
       </CardHeader>
       <CardContent>

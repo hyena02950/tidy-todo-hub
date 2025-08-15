@@ -1,10 +1,9 @@
-
 const Joi = require('joi');
 
 const loginSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
-  twoFactorToken: Joi.string().length(6).optional()
+  twoFactorToken: Joi.string().length(6).optional().allow('', null)
 });
 
 const registerSchema = Joi.object({
