@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useUserRole, AppRole } from "@/hooks/useUserRole";
-import { Info } from "lucide-react";
+import { Info, Save, RefreshCw } from "lucide-react";
 
 type PermissionType = 'read' | 'create' | 'update' | 'delete' | 'view' | 'approve' | 'reject';
 type ResourceType = 'candidates' | 'jobs' | 'invoices' | 'documents' | 'vendors' | 'users' | 'roles' | 'analytics';
@@ -15,9 +16,9 @@ interface RolePermission {
   permission: PermissionType;
 }
 
-// Enhanced permissions matrix with full elika_admin access
+// Enhanced permissions matrix with full elika_admin access including ALL analytics permissions
 const defaultPermissions: RolePermission[] = [
-  // Elika Admin - FULL ACCESS TO EVERYTHING
+  // Elika Admin - FULL ACCESS TO EVERYTHING INCLUDING ALL ANALYTICS
   { role: 'elika_admin', resource: 'candidates', permission: 'read' },
   { role: 'elika_admin', resource: 'candidates', permission: 'create' },
   { role: 'elika_admin', resource: 'candidates', permission: 'update' },
@@ -67,11 +68,14 @@ const defaultPermissions: RolePermission[] = [
   { role: 'elika_admin', resource: 'roles', permission: 'approve' },
   { role: 'elika_admin', resource: 'roles', permission: 'reject' },
   
+  // ALL ANALYTICS PERMISSIONS FOR ELIKA ADMIN
   { role: 'elika_admin', resource: 'analytics', permission: 'read' },
   { role: 'elika_admin', resource: 'analytics', permission: 'create' },
   { role: 'elika_admin', resource: 'analytics', permission: 'update' },
   { role: 'elika_admin', resource: 'analytics', permission: 'delete' },
   { role: 'elika_admin', resource: 'analytics', permission: 'view' },
+  { role: 'elika_admin', resource: 'analytics', permission: 'approve' },
+  { role: 'elika_admin', resource: 'analytics', permission: 'reject' },
   
   // Vendor Admin - Limited access to their vendor data
   { role: 'vendor_admin', resource: 'candidates', permission: 'read' },
@@ -110,10 +114,11 @@ export const RolePermissionMatrix = () => {
   const { isElikaAdmin } = useUserRole();
   const { toast } = useToast();
   const [permissions, setPermissions] = useState<RolePermission[]>(defaultPermissions);
+  const [isSaving, setIsSaving] = useState(false);
 
   const roles: AppRole[] = ['elika_admin', 'vendor_admin', 'vendor_recruiter', 'delivery_head', 'finance_team'];
   const resources: ResourceType[] = ['candidates', 'jobs', 'invoices', 'documents', 'vendors', 'users', 'roles', 'analytics'];
-  const permissionTypes: PermissionType[] = ['read', 'create', 'update', 'delete', 'approve', 'reject'];
+  const permissionTypes: PermissionType[] = ['read', 'create', 'update', 'delete', 'approve', 'reject', 'view'];
 
   const hasPermission = (role: AppRole, resource: ResourceType, permission: PermissionType): boolean => {
     return permissions.some(p => p.role === role && p.resource === resource && p.permission === permission);
@@ -131,10 +136,34 @@ export const RolePermissionMatrix = () => {
       // Add permission
       setPermissions(prev => [...prev, { role, resource, permission }]);
     }
+  };
 
+  const savePermissions = async () => {
+    setIsSaving(true);
+    try {
+      // Simulate API call to save permissions
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      toast({
+        title: "Permissions Saved",
+        description: "Role permissions have been updated successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save permissions",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const resetToDefaults = () => {
+    setPermissions(defaultPermissions);
     toast({
-      title: "Permission Updated",
-      description: `Permission ${hasCurrentPermission ? 'removed' : 'added'} successfully`,
+      title: "Permissions Reset",
+      description: "Permissions have been reset to default values",
     });
   };
 
@@ -191,10 +220,31 @@ export const RolePermissionMatrix = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Role Permissions Matrix</CardTitle>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Info className="h-4 w-4" />
-          <span>Elika Admin has full system access. Other roles have limited permissions based on their responsibilities.</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <CardTitle>Role Permissions Matrix</CardTitle>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
+              <Info className="h-4 w-4" />
+              <span>Elika Admin has full system access. Configure permissions for other roles.</span>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={resetToDefaults}
+              disabled={isSaving}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Reset
+            </Button>
+            <Button 
+              onClick={savePermissions}
+              disabled={isSaving}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {isSaving ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

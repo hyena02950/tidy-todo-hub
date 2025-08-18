@@ -98,36 +98,40 @@ export const logout = async () => {
 export const register = async (userData: {
   email: string;
   password: string;
-  fullName: string;
+  fullName?: string;
   companyName?: string;
-  phone?: string;
 }) => {
-  console.log('Attempting registration with:', { ...userData, password: '[HIDDEN]' });
-  
   try {
-    const response = await fetch(`${baseURL}/api/auth/register`, {
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
       },
-      credentials: 'include',
-      body: JSON.stringify(userData),
+      body: JSON.stringify({
+        email: userData.email,
+        password: userData.password,
+        full_name: userData.fullName,
+        company_name: userData.companyName,
+      }),
     });
 
-    console.log('Registration response status:', response.status);
+    const data = await response.json();
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Registration failed' }));
-      throw new Error(errorData.message || 'Registration failed');
+      throw new Error(data.message || 'Registration failed');
     }
 
-    const data = await response.json();
-    console.log('Registration successful:', data);
+    // Store tokens
+    if (data.token) {
+      setToken(data.token);
+    }
+    if (data.refreshToken) {
+      setRefreshToken(data.refreshToken);
+    }
 
     return data;
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('Register error:', error);
     throw error;
   }
 };
