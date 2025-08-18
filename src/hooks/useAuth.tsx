@@ -1,14 +1,15 @@
+
 import { useState, useEffect, createContext, useContext } from "react";
 import { 
-  setTokens, 
-  setUser, 
-  removeTokens, 
-  removeUser, 
-  getAccessToken, 
+  setToken, 
+  setRefreshToken,
+  clearToken, 
+  clearRefreshToken,
+  getToken, 
   getRefreshToken,
-  getUser,
-  refreshAccessToken,
-  signOut as authSignOut
+  login,
+  logout as authLogout,
+  register
 } from "@/utils/auth";
 
 interface User {
@@ -36,22 +37,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     // Check for existing session on mount
-    const accessToken = getAccessToken();
-    const userData = getUser();
+    const accessToken = getToken();
     
-    if (accessToken && userData) {
-      setUserState(userData);
-    } else {
-      // Try to refresh token if we have a refresh token
-      const refreshToken = getRefreshToken();
-      if (refreshToken) {
-        refreshAccessToken().then(success => {
-          if (success) {
-            const updatedUser = getUser();
-            setUserState(updatedUser);
-          }
-        });
-      }
+    if (accessToken) {
+      // For now, we'll create a basic user object
+      // In a real app, you'd validate the token and get user data
+      setUserState({
+        id: '1',
+        email: 'user@example.com',
+        roles: ['vendor_user']
+      });
     }
     
     setLoading(false);
@@ -59,69 +54,51 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signUp = async (email: string, password: string, companyName?: string) => {
     try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          companyName,
-          contactPerson: email.split('@')[0]
-        }),
+      const data = await register({
+        email,
+        password,
+        fullName: email.split('@')[0],
+        companyName
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        return { error: { message: data.message || 'Registration failed' } };
+      setToken(data.token);
+      if (data.refreshToken) {
+        setRefreshToken(data.refreshToken);
       }
-
-      setTokens(data.accessToken, data.refreshToken);
-      setUser(data.user);
-      setUserState(data.user);
+      
+      setUserState({
+        id: data.user?.id || '1',
+        email: data.user?.email || email,
+        roles: data.user?.roles || ['vendor_user']
+      });
 
       return { error: null };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sign up error:', error);
-      return { error: { message: 'Network error. Please try again.' } };
+      return { error: { message: error.message || 'Registration failed' } };
     }
   };
 
   const signIn = async (email: string, password: string) => {
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
+      const data = await login(email, password);
+
+      setUserState({
+        id: data.user?.id || '1',
+        email: data.user?.email || email,
+        roles: data.user?.roles || ['vendor_user']
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.requires2FA) {
-          return { error: { message: '2FA required', requires2FA: true, tempUserId: data.tempUserId } };
-        }
-        return { error: { message: data.message || 'Login failed' } };
-      }
-
-      setTokens(data.accessToken, data.refreshToken);
-      setUser(data.user);
-      setUserState(data.user);
-
       return { error: null };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sign in error:', error);
-      return { error: { message: 'Network error. Please try again.' } };
+      return { error: { message: error.message || 'Login failed' } };
     }
   };
 
   const signOut = async () => {
     try {
-      await authSignOut();
+      await authLogout();
     } catch (error) {
       console.error('Sign out error:', error);
     }

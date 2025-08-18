@@ -18,21 +18,22 @@ const shouldApplyStrictSecurity = (req) => {
 
 // Enhanced security headers configuration
 const securityHeaders = helmet({
-  // Content Security Policy
+  // Content Security Policy - Updated for HTTP/HTTPS compatibility
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
       scriptSrc: ["'self'"],
-      connectSrc: ["'self'", "https://api.elika.com"],
+      connectSrc: ["'self'", "https://api.elika.com", "ws:", "wss:", "http:", "https:"],
       frameSrc: ["'none'"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
       workerSrc: ["'self'", "blob:"],
       childSrc: ["'self'"],
       formAction: ["'self'"],
+      // Don't upgrade insecure requests for HTTP compatibility
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
     },
   },
@@ -40,8 +41,8 @@ const securityHeaders = helmet({
   // Cross-Origin Embedder Policy - disable for React apps
   crossOriginEmbedderPolicy: false,
   
-  // Cross-Origin Opener Policy - only for production HTTPS
-  crossOriginOpenerPolicy: false, // Disable completely for now to avoid issues
+  // Cross-Origin Opener Policy - COMPLETELY DISABLE to fix HTTP errors
+  crossOriginOpenerPolicy: false,
   
   // Cross-Origin Resource Policy
   crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -64,7 +65,7 @@ const securityHeaders = helmet({
   // No Sniff
   noSniff: true,
   
-  // Origin Agent Cluster - disable to avoid conflicts
+  // Origin Agent Cluster - DISABLE to fix browser warning
   originAgentCluster: false,
   
   // Permitted Cross-Domain Policies
@@ -102,6 +103,11 @@ const additionalHeaders = (req, res, next) => {
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   }
+  
+  // EXPLICITLY REMOVE problematic headers for HTTP compatibility
+  res.removeHeader('Origin-Agent-Cluster');
+  res.removeHeader('Cross-Origin-Opener-Policy');
+  res.removeHeader('Cross-Origin-Embedder-Policy');
   
   next();
 };

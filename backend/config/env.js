@@ -23,7 +23,7 @@ module.exports = {
   PORT: parseInt(process.env.PORT) || 3001,
   NODE_ENV: process.env.NODE_ENV || 'development',
   
-  // CORS - Include HTTP versions for development
+  // CORS - Updated for HTTP/HTTPS compatibility
   CORS_ORIGINS: process.env.CORS_ORIGINS ? 
     process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()) : 
     [
@@ -32,7 +32,12 @@ module.exports = {
       'http://localhost:8080',
       'https://localhost:3000',
       'https://localhost:5173', 
-      'https://localhost:8080'
+      'https://localhost:8080',
+      // Add production IPs
+      'http://13.235.100.18:8080',
+      'https://13.235.100.18:8080',
+      'http://13.235.100.18:3000',
+      'https://13.235.100.18:3000'
     ],
   
   // Rate Limiting

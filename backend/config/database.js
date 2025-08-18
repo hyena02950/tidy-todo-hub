@@ -1,6 +1,5 @@
-
-import mongoose from 'mongoose';
-import dotenv from 'dotenv';
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
 
 // Load environment variables
 dotenv.config();
@@ -89,4 +88,4 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-export default connectDB;
+module.exports = connectDB;

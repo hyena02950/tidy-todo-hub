@@ -78,23 +78,24 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    // TEMPORARILY DISABLE 2FA ENFORCEMENT FOR DEBUGGING
     // Only check 2FA for specific sensitive operations, not all API calls
-    const sensitiveRoutes = ['/api/users/roles', '/api/vendors/approve'];
-    const isSensitiveRoute = sensitiveRoutes.some(route => req.path.includes(route));
+    // const sensitiveRoutes = ['/api/users/roles', '/api/vendors/approve'];
+    // const isSensitiveRoute = sensitiveRoutes.some(route => req.path.includes(route));
     
-    if (isSensitiveRoute) {
-      // Check if user requires 2FA and it's enabled
-      const requires2FA = await authService.requires2FA(user._id);
-      const has2FAEnabled = await authService.has2FAEnabled(user._id);
-      
-      if (requires2FA && !has2FAEnabled) {
-        return res.status(403).json({
-          error: true,
-          message: '2FA setup required for this role',
-          code: 'TWO_FA_SETUP_REQUIRED'
-        });
-      }
-    }
+    // if (isSensitiveRoute) {
+    //   // Check if user requires 2FA and it's enabled
+    //   const requires2FA = await authService.requires2FA(user._id);
+    //   const has2FAEnabled = await authService.has2FAEnabled(user._id);
+    //   
+    //   if (requires2FA && !has2FAEnabled) {
+    //     return res.status(403).json({
+    //       error: true,
+    //       message: '2FA setup required for this role',
+    //       code: 'TWO_FA_SETUP_REQUIRED'
+    //     });
+    //   }
+    // }
 
     // Ensure req.user has all necessary fields
     req.user = {

@@ -1,109 +1,143 @@
-// Simple auth utilities for localStorage management
-export const getAccessToken = (): string | null => {
-  return localStorage.getItem("access-token");
+import { Cookies } from 'react-cookie';
+
+const cookies = new Cookies();
+
+const TOKEN_KEY = 'authToken';
+const REFRESH_TOKEN_KEY = 'refreshToken';
+
+export const setToken = (token: string, options?: any) => {
+  cookies.set(TOKEN_KEY, token, { path: '/', ...options });
 };
 
-export const getRefreshToken = (): string | null => {
-  return localStorage.getItem("refresh-token");
+export const getToken = () => {
+  return cookies.get(TOKEN_KEY);
 };
 
-export const setTokens = (accessToken: string, refreshToken: string): void => {
-  localStorage.setItem("access-token", accessToken);
-  localStorage.setItem("refresh-token", refreshToken);
+export const clearToken = () => {
+  cookies.remove(TOKEN_KEY, { path: '/' });
 };
 
-export const removeTokens = (): void => {
-  localStorage.removeItem("access-token");
-  localStorage.removeItem("refresh-token");
-  localStorage.removeItem("auth-user");
+export const setRefreshToken = (refreshToken: string, options?: any) => {
+  cookies.set(REFRESH_TOKEN_KEY, refreshToken, { path: '/', ...options });
 };
 
-// Legacy function for backward compatibility
-export const getToken = (): string | null => {
-  return getAccessToken();
+export const getRefreshToken = () => {
+  return cookies.get(REFRESH_TOKEN_KEY);
 };
 
-export const setToken = (token: string): void => {
-  localStorage.setItem("access-token", token);
+export const clearRefreshToken = () => {
+  cookies.remove(REFRESH_TOKEN_KEY, { path: '/' });
 };
 
-export const removeToken = (): void => {
-  removeTokens();
-};
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
+const baseURL = API_BASE_URL.replace(/\/$/, '');
 
-export const getUser = (): any => {
-  const user = localStorage.getItem("auth-user");
-  return user ? JSON.parse(user) : null;
-};
-
-export const setUser = (user: any): void => {
-  localStorage.setItem("auth-user", JSON.stringify(user));
-};
-
-export const removeUser = (): void => {
-  localStorage.removeItem("auth-user");
-};
-
-// Check if user is authenticated
-export const isAuthenticated = (): boolean => {
-  const token = getAccessToken();
-  const user = getUser();
-  return !!(token && user);
-};
-
-// Refresh access token using refresh token
-export const refreshAccessToken = async (): Promise<boolean> => {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) {
-    return false;
-  }
-
+export const login = async (email: string, password: string) => {
+  console.log('Attempting login with:', { email, baseURL });
+  
   try {
-    const response = await fetch('/api/auth/refresh', {
+    const response = await fetch(`${baseURL}/api/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
-      body: JSON.stringify({ refreshToken }),
+      credentials: 'include',
+      body: JSON.stringify({ email, password }),
     });
 
+    console.log('Login response status:', response.status);
+
     if (!response.ok) {
-      removeTokens();
-      return false;
+      const errorData = await response.json().catch(() => ({ message: 'Login failed' }));
+      throw new Error(errorData.message || 'Login failed');
     }
 
     const data = await response.json();
-    setTokens(data.accessToken, data.refreshToken);
-    setUser(data.user);
-    
-    return true;
+    console.log('Login successful:', data);
+
+    if (data.token) {
+      setToken(data.token);
+    }
+    if (data.refreshToken) {
+      setRefreshToken(data.refreshToken);
+    }
+
+    return data;
   } catch (error) {
-    console.error('Token refresh failed:', error);
-    removeTokens();
-    return false;
+    console.error('Login error:', error);
+    throw error;
   }
 };
 
-// Sign out
-export const signOut = async (logoutAllDevices: boolean = false): Promise<void> => {
-  const refreshToken = getRefreshToken();
+export const logout = async () => {
+  console.log('Attempting logout...');
   
   try {
-    const accessToken = getAccessToken();
-    if (accessToken) {
-      await fetch('/api/auth/logout', {
+    const token = getToken();
+    if (token) {
+      await fetch(`${baseURL}/api/auth/logout`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ refreshToken, logoutAllDevices }),
+        credentials: 'include',
       });
     }
   } catch (error) {
-    console.error('Logout API call failed:', error);
+    console.error('Logout error:', error);
+  } finally {
+    // Always clear tokens locally
+    clearToken();
+    clearRefreshToken();
+    console.log('Logout completed');
   }
+};
+
+export const register = async (userData: {
+  email: string;
+  password: string;
+  fullName: string;
+  companyName?: string;
+  phone?: string;
+}) => {
+  console.log('Attempting registration with:', { ...userData, password: '[HIDDEN]' });
   
-  removeTokens();
-  removeUser();
+  try {
+    const response = await fetch(`${baseURL}/api/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(userData),
+    });
+
+    console.log('Registration response status:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Registration failed' }));
+      throw new Error(errorData.message || 'Registration failed');
+    }
+
+    const data = await response.json();
+    console.log('Registration successful:', data);
+
+    return data;
+  } catch (error) {
+    console.error('Registration error:', error);
+    throw error;
+  }
+};
+
+export const isLoggedIn = () => {
+  const token = getToken();
+  return !!token;
+};
+
+export const clearAuthData = () => {
+  clearToken();
+  clearRefreshToken();
 };

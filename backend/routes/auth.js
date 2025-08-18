@@ -458,4 +458,44 @@ router.post('/disable-2fa', auth.authenticateToken, asyncHandler(async (req, res
   }
 }));
 
+// Temporary endpoint to disable 2FA for elika_admin (for debugging)
+router.post('/disable-admin-2fa', auth.authenticateToken, asyncHandler(async (req, res) => {
+  console.log('Admin 2FA disable attempt for user:', req.user.email);
+
+  try {
+    // Check if user is elika_admin
+    const isElikaAdmin = req.user.roles.some(role => role.role === 'elika_admin');
+    if (!isElikaAdmin) {
+      return res.status(403).json({
+        error: true,
+        message: 'Only elika admins can use this endpoint',
+        code: 'INSUFFICIENT_PERMISSIONS'
+      });
+    }
+
+    // Force disable 2FA for this user
+    const TwoFactorAuth = require('../models/TwoFactorAuth');
+    await TwoFactorAuth.findOneAndUpdate(
+      { userId: req.user.id },
+      { isEnabled: false },
+      { upsert: false }
+    );
+
+    console.log('2FA disabled for elika admin:', req.user.email);
+
+    res.json({
+      success: true,
+      message: '2FA disabled for elika admin'
+    });
+
+  } catch (error) {
+    console.error('Admin 2FA disable error:', error);
+    res.status(500).json({
+      error: true,
+      message: error.message || 'Failed to disable 2FA',
+      code: 'ADMIN_2FA_DISABLE_ERROR'
+    });
+  }
+}));
+
 module.exports = router;

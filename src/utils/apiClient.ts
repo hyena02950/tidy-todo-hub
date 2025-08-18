@@ -1,171 +1,135 @@
-// API Client utility for making HTTP requests to the custom backend
-import { getAccessToken, refreshAccessToken } from './auth';
 
-interface ApiResponse<T = any> {
-  data?: T;
-  error?: string;
-  message?: string;
-}
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
 
-class ApiClient {
-  private baseURL: string;
+// Remove trailing slash if present
+const baseURL = API_BASE_URL.replace(/\/$/, '');
 
-  constructor(baseURL: string = '') {
-    this.baseURL = baseURL;
-  }
-
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<ApiResponse<T>> {
-    let token = getAccessToken();
-    const url = `${this.baseURL}${endpoint}`;
-
-    const config: RequestInit = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
-        ...options.headers,
-      },
-      ...options,
-    };
-
+export const apiClient = {
+  get: async (endpoint: string) => {
+    const url = `${baseURL}${endpoint}`;
+    console.log('API GET request to:', url);
+    
     try {
-      const response = await fetch(url, config);
-      
-      // Handle token expiration
-      if (response.status === 401) {
-        const errorData = await response.json();
-        if (errorData.code === 'TOKEN_EXPIRED') {
-          // Try to refresh token
-          const refreshed = await refreshAccessToken();
-          if (refreshed) {
-            // Retry request with new token
-            const newToken = getAccessToken();
-            const retryConfig = {
-              ...config,
-              headers: {
-                ...config.headers,
-                Authorization: `Bearer ${newToken}`,
-              },
-            };
-            
-            const retryResponse = await fetch(url, retryConfig);
-            const retryData = await retryResponse.json();
-            
-            if (!retryResponse.ok) {
-              return {
-                error: retryData.message || `HTTP ${retryResponse.status}: ${retryResponse.statusText}`,
-              };
-            }
-            
-            return { data: retryData };
-          }
-        }
-      }
-      
-      const data = await response.json();
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        credentials: 'include',
+      });
 
+      console.log('API response status:', response.status);
+      
       if (!response.ok) {
-        return {
-          error: data.message || `HTTP ${response.status}: ${response.statusText}`,
-        };
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      return { data };
+      const data = await response.json();
+      console.log('API response data:', data);
+      return data;
     } catch (error) {
       console.error('API request failed:', error);
-      return {
-        error: error instanceof Error ? error.message : 'Network error occurred',
-      };
+      throw error;
     }
-  }
+  },
 
-  async get<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'GET' });
-  }
-
-  async post<T>(endpoint: string, body?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'POST',
-      body: body instanceof FormData ? body : JSON.stringify(body),
-      headers: body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
-    });
-  }
-
-  async put<T>(endpoint: string, body?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    });
-  }
-
-  async patch<T>(endpoint: string, body?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    });
-  }
-
-  async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'DELETE' });
-  }
-
-  // File upload helper
-  async uploadFile<T>(endpoint: string, file: File, additionalData?: Record<string, string>): Promise<ApiResponse<T>> {
-    const formData = new FormData();
-    formData.append('file', file);
+  post: async (endpoint: string, data?: any) => {
+    const url = `${baseURL}${endpoint}`;
+    console.log('API POST request to:', url, 'with data:', data);
     
-    if (additionalData) {
-      Object.entries(additionalData).forEach(([key, value]) => {
-        formData.append(key, value);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        credentials: 'include',
+        body: data ? JSON.stringify(data) : undefined,
       });
+
+      console.log('API response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const responseData = await response.json();
+      console.log('API response data:', responseData);
+      return responseData;
+    } catch (error) {
+      console.error('API request failed:', error);
+      throw error;
     }
+  },
 
-    return this.post<T>(endpoint, formData);
-  }
-}
-
-// Always use relative URLs in development to leverage Vite's proxy
-// This ensures all requests go through the development server on port 8080
-const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001');
-
-// Create and export a singleton instance
-export const apiClient = new ApiClient(API_BASE_URL);
-
-// Utility functions for common operations
-export const withRetry = async <T>(
-  operation: () => Promise<ApiResponse<T>>,
-  maxRetries: number = 3,
-  delay: number = 1000
-): Promise<ApiResponse<T>> => {
-  let lastError: string = '';
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const result = await operation();
+  put: async (endpoint: string, data?: any) => {
+    const url = `${baseURL}${endpoint}`;
+    console.log('API PUT request to:', url, 'with data:', data);
     
-    if (!result.error) {
-      return result;
-    }
+    try {
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        credentials: 'include',
+        body: data ? JSON.stringify(data) : undefined,
+      });
 
-    lastError = result.error;
+      console.log('API response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const responseData = await response.json();
+      console.log('API response data:', responseData);
+      return responseData;
+    } catch (error) {
+      console.error('API request failed:', error);
+      throw error;
+    }
+  },
+
+  delete: async (endpoint: string) => {
+    const url = `${baseURL}${endpoint}`;
+    console.log('API DELETE request to:', url);
     
-    if (attempt < maxRetries) {
-      await new Promise(resolve => setTimeout(resolve, delay * attempt));
+    try {
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        credentials: 'include',
+      });
+
+      console.log('API response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const responseData = await response.json();
+      console.log('API response data:', responseData);
+      return responseData;
+    } catch (error) {
+      console.error('API request failed:', error);
+      throw error;
     }
   }
-
-  return { error: `Failed after ${maxRetries} attempts: ${lastError}` };
 };
 
-// Polling utility for real-time updates (replaces Supabase real-time)
-export const createPollingSubscription = (
-  fetchFunction: () => Promise<void>,
-  interval: number = 30000
-) => {
-  const intervalId = setInterval(fetchFunction, interval);
-  
-  return {
-    unsubscribe: () => clearInterval(intervalId),
-  };
-};
+export default apiClient;
