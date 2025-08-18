@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 
@@ -18,12 +19,15 @@ const connectDB = async () => {
       maxPoolSize: 10,
       bufferCommands: false,
       authSource: 'admin',
-      // Enhanced transaction support
+      // Enhanced transaction support with fallback for single-node
       readPreference: 'primary',
-      readConcern: { level: 'majority' },
-      writeConcern: { w: 'majority', j: true },
+      readConcern: { level: 'local' }, // Changed from 'majority' for single-node compatibility
+      writeConcern: { w: 1, j: true }, // Changed from 'majority' for single-node compatibility
       retryWrites: true,
-      retryReads: true
+      retryReads: true,
+      // Add connection stability options
+      heartbeatFrequencyMS: 10000,
+      serverSelectionTimeoutMS: 5000,
     };
 
     console.log('🔄 Attempting to connect to MongoDB...');
@@ -37,9 +41,12 @@ const connectDB = async () => {
     const admin = mongoose.connection.db.admin();
     try {
       const result = await admin.replSetGetStatus();
-      console.log('✅ Replica Set detected - Transactions enabled');
+      console.log('✅ Replica Set detected - Full transactions enabled');
+      global.hasReplicaSet = true;
     } catch (error) {
-      console.log('⚠️ No replica set detected - Transactions may be limited');
+      console.log('ℹ️ Single-node MongoDB detected - Using local transactions');
+      global.hasReplicaSet = false;
+      // For single-node instances, we'll use regular operations instead of transactions
     }
 
     return mongoose.connection;
@@ -51,7 +58,7 @@ const connectDB = async () => {
     console.log('- Check MongoDB server status');
     console.log('- Validate network connectivity');
     console.log('- Confirm authentication credentials');
-    console.log('- For transactions, ensure replica set is configured');
+    console.log('- For full transactions, ensure replica set is configured');
     
     throw error;
   }
@@ -67,7 +74,11 @@ mongoose.connection.on('error', (err) => {
 });
 
 mongoose.connection.on('disconnected', () => {
-  console.log('⚠️ Mongoose disconnected');
+  console.log('⚠️ Mongoose disconnected - attempting reconnect...');
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('✅ Mongoose reconnected to DB');
 });
 
 // Transaction error handling
@@ -77,15 +88,20 @@ mongoose.connection.on('error', (err) => {
   }
 });
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
+// Enhanced graceful shutdown with better signal handling
+const gracefulShutdown = async (signal) => {
+  console.log(`🛑 Received ${signal}, closing database connection gracefully...`);
   try {
     await mongoose.connection.close();
-    console.log('🛑 Mongoose connection closed (app termination)');
+    console.log('✅ Mongoose connection closed gracefully');
   } catch (error) {
-    console.error('Error closing database connection:', error);
+    console.error('❌ Error closing database connection:', error);
   }
-  process.exit(0);
-});
+};
+
+// Handle multiple shutdown signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2')); // For nodemon
 
 module.exports = connectDB;

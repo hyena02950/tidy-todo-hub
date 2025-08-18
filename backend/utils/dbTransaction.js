@@ -11,14 +11,20 @@ class DatabaseTransaction {
       throw new Error('Transaction already started');
     }
     
+    // Check if replica set is available
+    if (!global.hasReplicaSet) {
+      console.log('ℹ️ Single-node MongoDB detected - skipping session for transaction');
+      return null;
+    }
+    
     this.session = await mongoose.startSession();
     this.session.startTransaction();
     return this.session;
   }
 
   async commitTransaction() {
-    if (!this.session) {
-      throw new Error('No active transaction to commit');
+    if (!global.hasReplicaSet || !this.session) {
+      return; // No transaction to commit in single-node setup
     }
     
     try {
@@ -30,8 +36,8 @@ class DatabaseTransaction {
   }
 
   async abortTransaction() {
-    if (!this.session) {
-      throw new Error('No active transaction to abort');
+    if (!global.hasReplicaSet || !this.session) {
+      return; // No transaction to abort in single-node setup
     }
     
     try {
@@ -43,7 +49,7 @@ class DatabaseTransaction {
   }
 
   getSession() {
-    return this.session;
+    return global.hasReplicaSet ? this.session : null;
   }
 
   async executeInTransaction(operations) {
@@ -60,13 +66,25 @@ class DatabaseTransaction {
   }
 }
 
-// Utility function for simple transaction wrapper
+// Enhanced utility function for simple transaction wrapper
 const withTransaction = async (operations) => {
   const transaction = new DatabaseTransaction();
   return await transaction.executeInTransaction(operations);
 };
 
+// Safe transaction wrapper that works with both replica sets and single-node
+const safeTransaction = async (operations) => {
+  if (!global.hasReplicaSet) {
+    // For single-node, execute operations without transaction
+    return await operations(null);
+  }
+  
+  // For replica sets, use full transaction
+  return await withTransaction(operations);
+};
+
 module.exports = {
   DatabaseTransaction,
-  withTransaction
+  withTransaction,
+  safeTransaction
 };

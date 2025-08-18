@@ -1,4 +1,3 @@
-
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -263,30 +262,68 @@ server.on('upgrade', (request, socket, head) => {
   handleWebSocketUpgrade(request, socket, head, wss);
 });
 
-// Graceful shutdown
-const gracefulShutdown = () => {
-  console.log('Received shutdown signal, closing server gracefully...');
+// Enhanced graceful shutdown with better signal handling
+let isShuttingDown = false;
+
+const gracefulShutdown = (signal) => {
+  if (isShuttingDown) {
+    console.log('⚠️ Force shutdown requested');
+    process.exit(1);
+  }
   
-  server.close(() => {
-    console.log('HTTP server closed');
+  isShuttingDown = true;
+  console.log(`🛑 Received ${signal}, closing server gracefully...`);
+  
+  // Stop accepting new connections
+  server.close(async (err) => {
+    if (err) {
+      console.error('❌ Error closing HTTP server:', err);
+    } else {
+      console.log('✅ HTTP server closed');
+    }
     
-    // Close all WebSocket connections
-    wss.clients.forEach((ws) => {
-      ws.terminate();
-    });
-    
-    process.exit(0);
+    try {
+      // Close all WebSocket connections
+      console.log('🔌 Closing WebSocket connections...');
+      wss.clients.forEach((ws) => {
+        ws.terminate();
+      });
+      
+      // Close database connection
+      const mongoose = require('mongoose');
+      await mongoose.connection.close();
+      console.log('🗄️ Database connection closed');
+      
+      console.log('✅ Graceful shutdown completed');
+      process.exit(0);
+    } catch (error) {
+      console.error('❌ Error during graceful shutdown:', error);
+      process.exit(1);
+    }
   });
   
   // Force close after 30 seconds
   setTimeout(() => {
-    console.error('Could not close connections in time, forcefully shutting down');
+    console.error('⚠️ Could not close connections in time, forcefully shutting down');
     process.exit(1);
   }, 30000);
 };
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+// Handle multiple shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2')); // For PM2 and nodemon
+
+// Handle uncaught exceptions and rejections
+process.on('uncaughtException', (error) => {
+  console.error('💥 Uncaught Exception:', error);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('UNHANDLED_REJECTION');
+});
 
 // Start server
 server.listen(config.PORT, '0.0.0.0', () => {
@@ -294,6 +331,7 @@ server.listen(config.PORT, '0.0.0.0', () => {
   console.log(`🌐 Server accessible at: http://0.0.0.0:${config.PORT}`);
   console.log(`🔌 WebSocket server ready for connections`);
   console.log(`🔍 Debug routes at: http://0.0.0.0:${config.PORT}/api/debug/routes`);
+  console.log(`📊 Database transaction mode: ${global.hasReplicaSet ? 'Full (Replica Set)' : 'Local (Single Node)'}`);
 });
 
 module.exports = { app, server };
