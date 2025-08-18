@@ -1,135 +1,93 @@
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import { useAuth } from '@/contexts/AuthContext';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
+// Define a type for the request interceptor
+type RequestInterceptor = (config: AxiosRequestConfig) => AxiosRequestConfig | Promise<AxiosRequestConfig>;
 
-// Remove trailing slash if present
-const baseURL = API_BASE_URL.replace(/\/$/, '');
+// Define a type for the response interceptor
+type ResponseInterceptor = (response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>;
 
-export const apiClient = {
-  get: async (endpoint: string) => {
-    const url = `${baseURL}${endpoint}`;
-    console.log('API GET request to:', url);
-    
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'include',
-      });
+// Define a type for the error interceptor
+type ErrorInterceptor = (error: any) => any;
 
-      console.log('API response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API error response:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log('API response data:', data);
-      return data;
-    } catch (error) {
-      console.error('API request failed:', error);
-      throw error;
+// Get the API base URL from environment variables, ensuring HTTP protocol
+const getApiBaseUrl = (): string => {
+  let baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+  
+  // Force HTTP for specific IPs to prevent SSL errors
+  if (baseUrl.includes('43.205.255.233') || 
+      baseUrl.includes('13.235.100.18') || 
+      baseUrl.includes('localhost') || 
+      baseUrl.includes('127.0.0.1')) {
+    baseUrl = baseUrl.replace('https://', 'http://');
+    if (!baseUrl.startsWith('http://')) {
+      baseUrl = 'http://' + baseUrl.replace(/^https?:\/\//, '');
     }
+  }
+  
+  console.log('🔧 API Base URL:', baseUrl);
+  return baseUrl;
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+// Create a new Axios instance with default configurations
+const apiClient: AxiosInstance = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 10000, // Adjust the timeout as needed
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
+  withCredentials: true, // Enable sending cookies with the requests
+});
 
-  post: async (endpoint: string, data?: any) => {
-    const url = `${baseURL}${endpoint}`;
-    console.log('API POST request to:', url, 'with data:', data);
-    
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'include',
-        body: data ? JSON.stringify(data) : undefined,
-      });
-
-      console.log('API response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API error response:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      const responseData = await response.json();
-      console.log('API response data:', responseData);
-      return responseData;
-    } catch (error) {
-      console.error('API request failed:', error);
-      throw error;
-    }
-  },
-
-  put: async (endpoint: string, data?: any) => {
-    const url = `${baseURL}${endpoint}`;
-    console.log('API PUT request to:', url, 'with data:', data);
-    
-    try {
-      const response = await fetch(url, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'include',
-        body: data ? JSON.stringify(data) : undefined,
-      });
-
-      console.log('API response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API error response:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      const responseData = await response.json();
-      console.log('API response data:', responseData);
-      return responseData;
-    } catch (error) {
-      console.error('API request failed:', error);
-      throw error;
-    }
-  },
-
-  delete: async (endpoint: string) => {
-    const url = `${baseURL}${endpoint}`;
-    console.log('API DELETE request to:', url);
-    
-    try {
-      const response = await fetch(url, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'include',
-      });
-
-      console.log('API response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API error response:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-
-      const responseData = await response.json();
-      console.log('API response data:', responseData);
-      return responseData;
-    } catch (error) {
-      console.error('API request failed:', error);
-      throw error;
-    }
+// Function to set the authorization header
+const setAuthHeader = (token: string | null) => {
+  if (token) {
+    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  } else {
+    delete apiClient.defaults.headers.common['Authorization'];
   }
 };
 
-export default apiClient;
+// Request interceptor
+const onRequest: RequestInterceptor = (config) => {
+  const token = localStorage.getItem('token');
+  if (token && config.headers) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  return config;
+};
+
+// Response interceptor
+const onResponse: ResponseInterceptor = (response) => {
+  return response;
+};
+
+// Error interceptor
+const onError: ErrorInterceptor = (error) => {
+  console.error('API Error:', error);
+  
+  if (error.response) {
+    // The request was made and the server responded with a status code
+    // that falls out of the range of 2xx
+    console.error('Data:', error.response.data);
+    console.error('Status:', error.response.status);
+    console.error('Headers:', error.response.headers);
+  } else if (error.request) {
+    // The request was made but no response was received
+    console.error('Request:', error.request);
+  } else {
+    // Something happened in setting up the request that triggered an Error
+    console.error('Message:', error.message);
+  }
+  
+  return Promise.reject(error);
+};
+
+// Apply interceptors
+apiClient.interceptors.request.use(onRequest, onError);
+apiClient.interceptors.response.use(onResponse, onError);
+
+export { apiClient, setAuthHeader };

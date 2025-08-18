@@ -12,10 +12,10 @@ export default defineConfig(({ mode }) => {
   // Ensure backend URL uses HTTP consistently - CRITICAL FIX for SSL errors
   let backendUrl = env.VITE_API_BASE_URL || 'http://localhost:3001';
   
-  // FORCE HTTP for all local development and IP addresses to prevent SSL errors
-  if (mode === 'development' || 
-      backendUrl.includes('localhost') || 
+  // FORCE HTTP for all connections to prevent SSL errors
+  if (backendUrl.includes('localhost') || 
       backendUrl.includes('127.0.0.1') ||
+      backendUrl.includes('43.205.255.233') ||
       backendUrl.includes('13.235.100.18')) {
     backendUrl = backendUrl.replace('https://', 'http://');
     // Ensure it starts with http://
@@ -35,7 +35,7 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 8080,
       strictPort: true,
-      // Remove explicit https: false to fix TypeScript error - defaults to HTTP
+      // Remove explicit https configuration to default to HTTP
       hmr: {
         protocol: 'ws', // Force WebSocket (not WSS) for development
         port: 8080,
