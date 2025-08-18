@@ -1,3 +1,4 @@
+
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import path from 'path';
@@ -34,8 +35,7 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 8080,
       strictPort: true,
-      // Explicitly disable HTTPS to prevent SSL errors
-      https: false,
+      // Remove explicit https: false to fix TypeScript error - defaults to HTTP
       hmr: {
         protocol: 'ws', // Force WebSocket (not WSS) for development
         port: 8080,
