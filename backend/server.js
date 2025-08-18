@@ -34,11 +34,31 @@ const server = http.createServer(app);
 // Create WebSocket server
 const wss = new WebSocket.Server({ noServer: true });
 
-// Connect to database
-connectDB().catch(err => {
-  console.error('Failed to connect to database:', err);
-  process.exit(1);
-});
+// Enhanced startup process
+let isServerReady = false;
+let dbConnected = false;
+
+// Connect to database with retry logic
+const initializeDatabase = async () => {
+  let retries = 5;
+  while (retries > 0 && !dbConnected) {
+    try {
+      await connectDB();
+      dbConnected = true;
+      console.log('✅ Database initialization completed');
+      break;
+    } catch (err) {
+      retries--;
+      console.error(`❌ Database connection failed. Retries left: ${retries}`, err.message);
+      if (retries === 0) {
+        console.error('💥 Could not connect to database after multiple attempts');
+        process.exit(1);
+      }
+      // Wait 5 seconds before retry
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+  }
+};
 
 // Security middleware - Updated for HTTP/HTTPS compatibility
 app.use(helmet({
@@ -59,7 +79,7 @@ app.use(helmet({
     },
   },
   crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: false, // Disable to prevent HTTP errors
+  crossOriginOpenerPolicy: false,
   originAgentCluster: false,
   hsts: false
 }));
@@ -72,7 +92,6 @@ app.use(additionalHeaders);
 // CORS configuration - Updated for HTTP compatibility
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
@@ -82,7 +101,6 @@ app.use(cors({
       'https://localhost:3000',
       'https://localhost:8080',
       'https://localhost:5173',
-      // Add production domains here
       'http://13.235.100.18:8080',
       'https://13.235.100.18:8080'
     ];
@@ -91,7 +109,7 @@ app.use(cors({
       callback(null, true);
     } else {
       console.log('CORS: Origin not allowed:', origin);
-      callback(null, true); // Allow all origins for now - can restrict later
+      callback(null, true);
     }
   },
   credentials: true,
@@ -103,7 +121,7 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Root route handler - Fix for "Route not found" error
+// Root route handler
 app.get('/', (req, res) => {
   res.json({
     success: true,
@@ -111,6 +129,8 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     environment: config.NODE_ENV,
+    ready: isServerReady,
+    database: dbConnected ? 'connected' : 'disconnected',
     endpoints: {
       health: '/health',
       api: '/api',
@@ -186,26 +206,40 @@ app.get('/api/debug/routes', (req, res) => {
   });
 });
 
-// Health check endpoints - both variants
+// Enhanced health check endpoints
 app.get('/health', (req, res) => {
   res.json({
-    status: 'OK',
+    status: isServerReady && dbConnected ? 'OK' : 'STARTING',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: config.NODE_ENV,
-    database: 'connected',
+    database: dbConnected ? 'connected' : 'disconnected',
     protocol: req.protocol,
-    host: req.get('host')
+    host: req.get('host'),
+    ready: isServerReady
   });
+});
+
+// Readiness probe for PM2/K8s
+app.get('/ready', (req, res) => {
+  if (isServerReady && dbConnected) {
+    res.status(200).json({ status: 'ready' });
+  } else {
+    res.status(503).json({ 
+      status: 'not ready',
+      database: dbConnected,
+      server: isServerReady
+    });
+  }
 });
 
 app.get('/health-checks', (req, res) => {
   res.json({
-    status: 'OK',
+    status: isServerReady && dbConnected ? 'OK' : 'STARTING',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: config.NODE_ENV,
-    database: 'connected',
+    database: dbConnected ? 'connected' : 'disconnected',
     protocol: req.protocol,
     host: req.get('host')
   });
@@ -217,7 +251,8 @@ app.get('/api/status', (req, res) => {
     success: true,
     message: 'API is running',
     timestamp: new Date().toISOString(),
-    environment: config.NODE_ENV
+    environment: config.NODE_ENV,
+    ready: isServerReady
   });
 });
 
@@ -262,10 +297,10 @@ server.on('upgrade', (request, socket, head) => {
   handleWebSocketUpgrade(request, socket, head, wss);
 });
 
-// Enhanced graceful shutdown with better signal handling
+// Enhanced graceful shutdown with PM2 compatibility
 let isShuttingDown = false;
 
-const gracefulShutdown = (signal) => {
+const gracefulShutdown = async (signal) => {
   if (isShuttingDown) {
     console.log('⚠️ Force shutdown requested');
     process.exit(1);
@@ -273,6 +308,9 @@ const gracefulShutdown = (signal) => {
   
   isShuttingDown = true;
   console.log(`🛑 Received ${signal}, closing server gracefully...`);
+  
+  // Mark server as not ready
+  isServerReady = false;
   
   // Stop accepting new connections
   server.close(async (err) => {
@@ -290,9 +328,11 @@ const gracefulShutdown = (signal) => {
       });
       
       // Close database connection
-      const mongoose = require('mongoose');
-      await mongoose.connection.close();
-      console.log('🗄️ Database connection closed');
+      if (dbConnected) {
+        const mongoose = require('mongoose');
+        await mongoose.connection.close();
+        console.log('🗄️ Database connection closed');
+      }
       
       console.log('✅ Graceful shutdown completed');
       process.exit(0);
@@ -302,17 +342,19 @@ const gracefulShutdown = (signal) => {
     }
   });
   
-  // Force close after 30 seconds
+  // Force close after timeout
+  const timeout = parseInt(process.env.GRACEFUL_SHUTDOWN_TIMEOUT) || 30000;
   setTimeout(() => {
     console.error('⚠️ Could not close connections in time, forcefully shutting down');
     process.exit(1);
-  }, 30000);
+  }, timeout);
 };
 
-// Handle multiple shutdown signals
+// Handle multiple shutdown signals (PM2 compatible)
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2')); // For PM2 and nodemon
+process.on('SIGHUP', () => gracefulShutdown('SIGHUP')); // For PM2 reload
 
 // Handle uncaught exceptions and rejections
 process.on('uncaughtException', (error) => {
@@ -325,13 +367,50 @@ process.on('unhandledRejection', (reason, promise) => {
   gracefulShutdown('UNHANDLED_REJECTION');
 });
 
-// Start server
-server.listen(config.PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${config.PORT} in ${config.NODE_ENV} mode`);
-  console.log(`🌐 Server accessible at: http://0.0.0.0:${config.PORT}`);
-  console.log(`🔌 WebSocket server ready for connections`);
-  console.log(`🔍 Debug routes at: http://0.0.0.0:${config.PORT}/api/debug/routes`);
-  console.log(`📊 Database transaction mode: ${global.hasReplicaSet ? 'Full (Replica Set)' : 'Local (Single Node)'}`);
+// PM2 graceful start/stop
+process.on('message', (msg) => {
+  if (msg === 'shutdown') {
+    gracefulShutdown('PM2_SHUTDOWN');
+  }
 });
+
+// Initialize and start server
+const startServer = async () => {
+  try {
+    // Initialize database first
+    await initializeDatabase();
+    
+    // Start HTTP server
+    server.listen(config.PORT, '0.0.0.0', () => {
+      isServerReady = true;
+      console.log(`🚀 Server running on port ${config.PORT} in ${config.NODE_ENV} mode`);
+      console.log(`🌐 Server accessible at: http://0.0.0.0:${config.PORT}`);
+      console.log(`🔌 WebSocket server ready for connections`);
+      console.log(`🔍 Debug routes at: http://0.0.0.0:${config.PORT}/api/debug/routes`);
+      console.log(`📊 Database transaction mode: ${global.hasReplicaSet ? 'Full (Replica Set)' : 'Local (Single Node)'}`);
+      
+      // Signal PM2 that the app is ready
+      if (process.send) {
+        process.send('ready');
+      }
+    });
+    
+    // Handle server errors
+    server.on('error', (error) => {
+      console.error('❌ Server error:', error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${config.PORT} is already in use`);
+        process.exit(1);
+      }
+    });
+    
+  } catch (error) {
+    console.error('💥 Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Start the server
+startServer();
 
 module.exports = { app, server };
