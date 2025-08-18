@@ -1,8 +1,9 @@
 
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+
+import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 
 // Define a type for the request interceptor
-type RequestInterceptor = (config: AxiosRequestConfig) => AxiosRequestConfig | Promise<AxiosRequestConfig>;
+type RequestInterceptor = (config: InternalAxiosRequestConfig) => InternalAxiosRequestConfig | Promise<InternalAxiosRequestConfig>;
 
 // Define a type for the response interceptor
 type ResponseInterceptor = (response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>;
@@ -91,3 +92,4 @@ apiClient.interceptors.request.use(onRequest, onError);
 apiClient.interceptors.response.use(onResponse, onError);
 
 export { apiClient, setAuthHeader };
+
