@@ -8,49 +8,61 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   const isProduction = mode === 'production';
   
-  // Ensure backend URL uses HTTP for development and local environments
+  // Ensure backend URL uses HTTP consistently - CRITICAL FIX for SSL errors
   let backendUrl = env.VITE_API_BASE_URL || 'http://localhost:3001';
   
-  // Force HTTP for localhost and development - CRITICAL FIX
-  if (mode === 'development' || backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1')) {
+  // FORCE HTTP for all local development and IP addresses to prevent SSL errors
+  if (mode === 'development' || 
+      backendUrl.includes('localhost') || 
+      backendUrl.includes('127.0.0.1') ||
+      backendUrl.includes('13.235.100.18')) {
     backendUrl = backendUrl.replace('https://', 'http://');
+    // Ensure it starts with http://
+    if (!backendUrl.startsWith('http://')) {
+      backendUrl = 'http://' + backendUrl.replace(/^https?:\/\//, '');
+    }
   }
-  
-  // For production IPs, use HTTP unless explicitly HTTPS
-  if (backendUrl.includes('13.235.100.18') && !backendUrl.startsWith('https://')) {
-    backendUrl = backendUrl.replace('https://', 'http://');
-  }
+
+  console.log(`🔧 Backend URL configured as: ${backendUrl}`);
 
   return {
     // Base path configuration
     base: '/',
     
-    // Server configuration
+    // Server configuration - FIXED for HTTP compatibility
     server: {
       host: '0.0.0.0',
       port: 8080,
       strictPort: true,
-      // Remove https: false to fix TypeScript error - defaults to HTTP
+      // Explicitly disable HTTPS to prevent SSL errors
+      https: false,
       hmr: {
         protocol: 'ws', // Force WebSocket (not WSS) for development
-        port: 8080
+        port: 8080,
+        host: 'localhost' // Explicit host for HMR
       },
       proxy: {
         '/api': {
           target: backendUrl,
           changeOrigin: true,
-          secure: false, // Allow HTTP connections - CRITICAL
+          secure: false, // CRITICAL: Allow HTTP connections
           ws: true, // Enable websocket proxying
+          // Force HTTP protocol
+          protocol: 'http:',
           headers: {
-            'Origin': backendUrl
+            'Origin': backendUrl,
+            'X-Forwarded-Proto': 'http'
           },
           configure: (proxy, _options) => {
             proxy.on('error', (err, _req, _res) => {
               console.log('🔥 Proxy error:', err.message);
+              console.log('🔧 Check if backend is running on:', backendUrl);
             });
             proxy.on('proxyReq', (proxyReq, req, _res) => {
               console.log('📤 Sending Request to Backend:', req.method, req.url);
               console.log('📤 Target:', backendUrl);
+              // Force HTTP protocol headers
+              proxyReq.setHeader('X-Forwarded-Proto', 'http');
             });
             proxy.on('proxyRes', (proxyRes, req, _res) => {
               console.log('📥 Received Response from Backend:', proxyRes.statusCode, req.url);
@@ -92,7 +104,7 @@ export default defineConfig(({ mode }) => {
       }
     },
 
-    // Environment variables - FORCE HTTP for backend communication
+    // Environment variables - FORCE HTTP for backend communication to prevent SSL errors
     define: {
       'process.env': {
         VITE_API_BASE_URL: JSON.stringify(backendUrl),
