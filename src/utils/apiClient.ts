@@ -1,5 +1,5 @@
+
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { useAuth } from '@/contexts/AuthContext';
 
 // Define a type for the request interceptor
 type RequestInterceptor = (config: AxiosRequestConfig) => AxiosRequestConfig | Promise<AxiosRequestConfig>;
