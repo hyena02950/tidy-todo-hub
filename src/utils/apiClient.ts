@@ -1,6 +1,5 @@
-
 import axios, { InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
-import { getToken, removeToken } from './auth';
+import { getToken, clearToken } from './auth';
 
 // Create axios instance with base configuration
 const apiClient = axios.create({
@@ -38,7 +37,7 @@ apiClient.interceptors.response.use(
     }
 
     if (error.response?.status === 401) {
-      removeToken();
+      clearToken();
       window.location.href = '/login';
     }
     return Promise.reject(error);
