@@ -1,3 +1,4 @@
+
 const Joi = require('joi');
 
 const submitCandidateSchema = Joi.object({

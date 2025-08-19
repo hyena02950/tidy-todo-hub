@@ -1,8 +1,7 @@
-
 const express = require('express');
 const Candidate = require('../models/Candidate');
 const JobDescription = require('../models/JobDescription');
-const { authenticateToken, requireVendorAccess } = require('../middleware/auth');
+const { authenticateToken, requireVendorAccess, requireRole } = require('../middleware/auth');
 const { validateBody, validateQuery } = require('../middleware/validate');
 const { submitCandidateSchema, candidateQuerySchema } = require('../validators/candidates');
 const { uploadLimiter } = require('../middleware/rateLimiter');
@@ -12,6 +11,72 @@ const AppError = require('../utils/AppError');
 const fileUploadService = require('../services/fileUploadService');
 
 const router = express.Router();
+
+// Get all candidates (Elika Admin only)
+router.get('/', 
+  authenticateToken, 
+  requireRole(['elika_admin', 'delivery_head']),
+  validateQuery(candidateQuerySchema),
+  asyncHandler(async (req, res) => {
+    const { page, limit, status } = req.query;
+    const skip = (page - 1) * limit;
+
+    let query = {};
+    if (status) {
+      query.status = status;
+    }
+
+    const candidates = await Candidate.find(query)
+      .populate('jobId', 'jobId title')
+      .populate('vendorId', 'name')
+      .populate('submittedBy', 'email profile.fullName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalCount = await Candidate.countDocuments(query);
+
+    const candidatesData = await Promise.all(candidates.map(async (candidate) => {
+      let resumeAccessUrl = null;
+      if (candidate.resumeUrl) {
+        try {
+          resumeAccessUrl = await fileUploadService.getFileAccessUrl(candidate.resumeUrl);
+        } catch (error) {
+          console.error('Error generating resume access URL:', error);
+        }
+      }
+
+      return {
+        _id: candidate._id,
+        id: candidate.candidateId,
+        name: candidate.name,
+        email: candidate.email,
+        phone: candidate.phone,
+        position: candidate.jobId?.title || 'Unknown Position',
+        jobId: candidate.jobId?.jobId || 'Unknown',
+        jobTitle: candidate.jobId?.title || 'Unknown Job',
+        experience: `${candidate.experienceYears} years`,
+        skills: candidate.skills ? candidate.skills.split(',').map(s => s.trim()) : [],
+        status: candidate.status,
+        submittedBy: candidate.submittedBy?.email || 'Unknown',
+        submittedDate: candidate.createdAt.toISOString(),
+        submissionDate: candidate.createdAt.toLocaleDateString(),
+        expectedCTC: candidate.expectedCTC || 'Not specified',
+        currentCTC: candidate.currentCTC || 'Not specified',
+        vendorName: candidate.vendorId?.name || 'Unknown Vendor',
+        resumeUrl: resumeAccessUrl,
+        linkedinUrl: candidate.linkedinUrl
+      };
+    }));
+
+    res.json({
+      candidates: candidatesData,
+      totalCount,
+      currentPage: page,
+      totalPages: Math.ceil(totalCount / limit)
+    });
+  })
+);
 
 // Submit candidate
 router.post('/submit', 
