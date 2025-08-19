@@ -1,14 +1,13 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
-import { Search, Filter, UserPlus, FileText, Mail, Phone, Calendar, Building } from "lucide-react";
-import { getToken } from "@/utils/auth";
+import { Search, Filter, UserPlus } from "lucide-react";
+import { CandidateCard } from "@/components/CandidateCard";
+import apiClient from "@/utils/apiClient";
 
 interface Candidate {
   _id: string;
@@ -82,30 +81,20 @@ export const CandidatesTab = () => {
 
   const fetchCandidates = async () => {
     try {
-      const token = getToken();
-      if (!token) {
-        // If no token, show mock data for demo purposes
-        setCandidates(generateMockCandidates());
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch('/api/candidates', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setCandidates(data.candidates || []);
+      setLoading(true);
+      
+      // Try to fetch from API first
+      const response = await apiClient.get('/candidates');
+      
+      if (response.data?.candidates) {
+        setCandidates(response.data.candidates);
       } else {
-        // Fallback to mock data if API fails
+        // Fallback to mock data
         setCandidates(generateMockCandidates());
       }
     } catch (error) {
       console.error('Error fetching candidates:', error);
-      // Show mock data even on error for demo purposes
+      // Show mock data for demo purposes
       setCandidates(generateMockCandidates());
       toast({
         title: "Info",
@@ -218,122 +207,7 @@ export const CandidatesTab = () => {
           </Card>
         ) : (
           filteredCandidates.map((candidate) => (
-            <Card key={candidate._id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex flex-col lg:flex-row lg:items-start gap-6">
-                  {/* Candidate Avatar and Basic Info */}
-                  <div className="flex items-start gap-4 flex-shrink-0">
-                    <Avatar className="h-16 w-16">
-                      <AvatarFallback className="text-lg">
-                        {candidate.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    
-                    <div className="space-y-1">
-                      <h3 className="text-xl font-semibold">{candidate.name}</h3>
-                      <p className="text-lg text-muted-foreground">{candidate.position}</p>
-                      <Badge variant={getStatusBadgeVariant(candidate.status)} className="w-fit">
-                        {candidate.status.charAt(0).toUpperCase() + candidate.status.slice(1)}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  {/* Candidate Details */}
-                  <div className="flex-1 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Contact Information */}
-                      <div className="space-y-3">
-                        <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Contact Information</h4>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-sm">
-                            <Mail className="w-4 h-4 text-muted-foreground" />
-                            <span>{candidate.email}</span>
-                          </div>
-                          {candidate.phone && (
-                            <div className="flex items-center gap-2 text-sm">
-                              <Phone className="w-4 h-4 text-muted-foreground" />
-                              <span>{candidate.phone}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Professional Information */}
-                      <div className="space-y-3">
-                        <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Professional Details</h4>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-sm">
-                            <Building className="w-4 h-4 text-muted-foreground" />
-                            <span>{candidate.experience} experience</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-sm">
-                            <Calendar className="w-4 h-4 text-muted-foreground" />
-                            <span>Submitted {new Date(candidate.submissionDate).toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Skills */}
-                    {candidate.skills && candidate.skills.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Skills</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {candidate.skills.map((skill, index) => (
-                            <Badge key={index} variant="secondary" className="text-xs">
-                              {skill}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Submission Details */}
-                    {isElikaUser && (
-                      <div className="space-y-2">
-                        <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Submission Details</h4>
-                        <div className="text-sm">
-                          <span className="text-muted-foreground">Submitted by:</span> {candidate.vendorName || candidate.submittedBy}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex flex-col gap-2 flex-shrink-0">
-                    {candidate.resumeUrl && (
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={candidate.resumeUrl} target="_blank" rel="noopener noreferrer">
-                          <FileText className="w-4 h-4 mr-2" />
-                          View Resume
-                        </a>
-                      </Button>
-                    )}
-                    
-                    {isElikaUser && (
-                      <div className="space-y-2">
-                        <Select defaultValue={candidate.status}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="submitted">Submitted</SelectItem>
-                            <SelectItem value="screening">Screening</SelectItem>
-                            <SelectItem value="interviewing">Interviewing</SelectItem>
-                            <SelectItem value="selected">Selected</SelectItem>
-                            <SelectItem value="rejected">Rejected</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        
-                        <Button variant="outline" size="sm" className="w-full">
-                          Schedule Interview
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <CandidateCard key={candidate._id} candidate={candidate} />
           ))
         )}
       </div>

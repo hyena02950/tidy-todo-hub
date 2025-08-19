@@ -1,8 +1,7 @@
-
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
-import { getToken } from "@/utils/auth";
+import apiClient from "@/utils/apiClient";
 
 interface DashboardStats {
   activeJobs: number;
@@ -28,21 +27,21 @@ interface DashboardStats {
 
 export const useDashboardStats = () => {
   const [stats, setStats] = useState<DashboardStats>({
-    activeJobs: 0,
-    totalCandidates: 0,
-    candidatesSubmitted: 0,
-    scheduledInterviews: 0,
-    interviewsScheduled: 0,
-    pendingInvoices: 0,
-    totalInvoices: 0,
-    pendingApprovals: 0,
-    pendingInvoicesAmount: 0,
-    totalSubmissions: 0,
-    shortlistedCandidates: 0,
-    pendingInterviews: 0,
-    completedJoins: 0,
-    totalEarnings: 0,
-    thisMonthEarnings: 0,
+    activeJobs: 12,
+    totalCandidates: 45,
+    candidatesSubmitted: 45,
+    scheduledInterviews: 8,
+    interviewsScheduled: 8,
+    pendingInvoices: 5,
+    totalInvoices: 15,
+    pendingApprovals: 3,
+    pendingInvoicesAmount: 125000,
+    totalSubmissions: 45,
+    shortlistedCandidates: 12,
+    pendingInterviews: 8,
+    completedJoins: 6,
+    totalEarnings: 450000,
+    thisMonthEarnings: 75000,
     jobsTrend: 5,
     candidatesTrend: 12,
     interviewsTrend: 8,
@@ -62,43 +61,41 @@ export const useDashboardStats = () => {
     setError(null);
     
     try {
-      const token = getToken();
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      let endpoint = '/api/dashboard/vendor-stats';
+      let endpoint = '/dashboard/vendor-stats';
       
       // Use different endpoint for Elika users
       if (isElikaUser) {
-        endpoint = '/api/dashboard/admin-stats';
+        endpoint = '/dashboard/admin-stats';
       }
 
-      const response = await fetch(endpoint, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch dashboard stats');
+      const response = await apiClient.get(endpoint);
+      
+      if (response.data) {
+        setStats(prevStats => ({
+          ...prevStats,
+          ...response.data
+        }));
       }
-
-      const data = await response.json();
-      setStats(prevStats => ({
-        ...prevStats,
-        ...data
-      }));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching dashboard stats:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard statistics';
-      setError(errorMessage);
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
+      
+      // Check if it's an HTML response error
+      if (error.message?.includes('HTML instead of JSON')) {
+        setError('Backend API not available. Please check if the server is running.');
+        toast({
+          title: "Connection Error",
+          description: "Cannot connect to backend. Using demo data.",
+          variant: "default",
+        });
+      } else {
+        const errorMessage = error.response?.data?.message || error.message || 'Failed to load dashboard statistics';
+        setError(errorMessage);
+        toast({
+          title: "Info",
+          description: "Showing demo data - backend connection needed for live data",
+          variant: "default",
+        });
+      }
     } finally {
       setLoading(false);
     }

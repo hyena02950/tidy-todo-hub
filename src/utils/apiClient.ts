@@ -1,95 +1,48 @@
 
+import axios, { InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import { getToken, removeToken } from './auth';
 
-import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
-
-// Define a type for the request interceptor
-type RequestInterceptor = (config: InternalAxiosRequestConfig) => InternalAxiosRequestConfig | Promise<InternalAxiosRequestConfig>;
-
-// Define a type for the response interceptor
-type ResponseInterceptor = (response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>;
-
-// Define a type for the error interceptor
-type ErrorInterceptor = (error: any) => any;
-
-// Get the API base URL from environment variables, ensuring HTTP protocol
-const getApiBaseUrl = (): string => {
-  let baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
-  
-  // Force HTTP for specific IPs to prevent SSL errors
-  if (baseUrl.includes('43.205.255.233') || 
-      baseUrl.includes('13.235.100.18') || 
-      baseUrl.includes('localhost') || 
-      baseUrl.includes('127.0.0.1')) {
-    baseUrl = baseUrl.replace('https://', 'http://');
-    if (!baseUrl.startsWith('http://')) {
-      baseUrl = 'http://' + baseUrl.replace(/^https?:\/\//, '');
-    }
-  }
-  
-  console.log('🔧 API Base URL:', baseUrl);
-  return baseUrl;
-};
-
-const API_BASE_URL = getApiBaseUrl();
-
-// Create a new Axios instance with default configurations
-const apiClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000, // Adjust the timeout as needed
+// Create axios instance with base configuration
+const apiClient = axios.create({
+  baseURL: '/api', // This will use the backend running on the same domain
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
   },
-  withCredentials: true, // Enable sending cookies with the requests
 });
 
-// Function to set the authorization header
-const setAuthHeader = (token: string | null) => {
-  if (token) {
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-  } else {
-    delete apiClient.defaults.headers.common['Authorization'];
+// Request interceptor to add auth token
+apiClient.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const token = getToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-};
+);
 
-// Request interceptor
-const onRequest: RequestInterceptor = (config) => {
-  const token = localStorage.getItem('token');
-  if (token && config.headers) {
-    config.headers['Authorization'] = `Bearer ${token}`;
+// Response interceptor to handle auth errors and non-JSON responses
+apiClient.interceptors.response.use(
+  (response: AxiosResponse) => {
+    return response;
+  },
+  (error: AxiosError) => {
+    // Check if response is HTML instead of JSON
+    if (error.response?.headers['content-type']?.includes('text/html')) {
+      console.error('Received HTML response instead of JSON:', error.response.data);
+      return Promise.reject(new Error('Server returned HTML instead of JSON. Check if backend is running correctly.'));
+    }
+
+    if (error.response?.status === 401) {
+      removeToken();
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
   }
-  return config;
-};
+);
 
-// Response interceptor
-const onResponse: ResponseInterceptor = (response) => {
-  return response;
-};
-
-// Error interceptor
-const onError: ErrorInterceptor = (error) => {
-  console.error('API Error:', error);
-  
-  if (error.response) {
-    // The request was made and the server responded with a status code
-    // that falls out of the range of 2xx
-    console.error('Data:', error.response.data);
-    console.error('Status:', error.response.status);
-    console.error('Headers:', error.response.headers);
-  } else if (error.request) {
-    // The request was made but no response was received
-    console.error('Request:', error.request);
-  } else {
-    // Something happened in setting up the request that triggered an Error
-    console.error('Message:', error.message);
-  }
-  
-  return Promise.reject(error);
-};
-
-// Apply interceptors
-apiClient.interceptors.request.use(onRequest, onError);
-apiClient.interceptors.response.use(onResponse, onError);
-
-export { apiClient, setAuthHeader };
-
+export default apiClient;
