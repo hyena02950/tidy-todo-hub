@@ -1,3 +1,4 @@
+
 import { Cookies } from 'react-cookie';
 
 const cookies = new Cookies();
@@ -56,8 +57,8 @@ export const login = async (email: string, password: string) => {
     const data = await response.json();
     console.log('Login successful:', data);
 
-    if (data.token) {
-      setToken(data.token);
+    if (data.accessToken) {
+      setToken(data.accessToken);
     }
     if (data.refreshToken) {
       setRefreshToken(data.refreshToken);
@@ -101,29 +102,37 @@ export const register = async (userData: {
   fullName?: string;
   companyName?: string;
 }) => {
+  console.log('Attempting registration with:', { email: userData.email, baseURL });
+  
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    const response = await fetch(`${baseURL}/api/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
         email: userData.email,
         password: userData.password,
-        full_name: userData.fullName,
-        company_name: userData.companyName,
+        contactPerson: userData.fullName,
+        companyName: userData.companyName,
       }),
     });
 
-    const data = await response.json();
+    console.log('Registration response status:', response.status);
 
     if (!response.ok) {
-      throw new Error(data.message || 'Registration failed');
+      const errorData = await response.json().catch(() => ({ message: 'Registration failed' }));
+      throw new Error(errorData.message || 'Registration failed');
     }
 
+    const data = await response.json();
+    console.log('Registration successful:', data);
+
     // Store tokens
-    if (data.token) {
-      setToken(data.token);
+    if (data.accessToken) {
+      setToken(data.accessToken);
     }
     if (data.refreshToken) {
       setRefreshToken(data.refreshToken);
