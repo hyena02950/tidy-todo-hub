@@ -39,48 +39,17 @@ export const RoleManagement = () => {
   const [selectedVendor, setSelectedVendor] = useState<string>("");
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const fetchUserProfiles = async () => {
-    try {
-      console.log("Fetching user profiles for role management...");
-      
-      const token = getToken();
-      if (!token) return {};
-
-      const response = await fetch('/api/users/profiles', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.error('Error fetching user profiles');
-        return {};
-      }
-
-      const data = await response.json();
-      console.log("User profiles fetched for role management:", data);
-      const profileMap: {[key: string]: string} = {};
-      data.profiles?.forEach((profile: any) => {
-        profileMap[profile._id || profile.id] = profile.name || profile.email || 'Unknown';
-      });
-      
-      setUserProfiles(profileMap);
-      return profileMap;
-    } catch (error) {
-      console.error('Unexpected error fetching user profiles:', error);
-      return {};
-    }
-  };
-
   const getUserIdFromEmail = async (email: string): Promise<string> => {
     console.log('Looking up user ID for email:', email);
     
     const token = getToken();
     if (!token) throw new Error('Authentication required');
 
-    const response = await fetch(`/api/users/lookup?email=${encodeURIComponent(email)}`, {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
+    const response = await fetch(`${API_BASE_URL}/api/users/lookup?email=${encodeURIComponent(email)}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
       },
     });
 
@@ -101,9 +70,11 @@ export const RoleManagement = () => {
       const token = getToken();
       if (!token) return;
 
-      const response = await fetch('/api/users/roles', {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
+      const response = await fetch(`${API_BASE_URL}/api/users/roles`, {
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
@@ -119,13 +90,7 @@ export const RoleManagement = () => {
 
       const data = await response.json();
       console.log("Roles fetched successfully:", data);
-      
-      if (!data.roles || data.roles.length === 0) {
-        setRoles([]);
-        return;
-      }
-
-      setRoles(data.roles);
+      setRoles(data.roles || []);
     } catch (error) {
       console.error('Unexpected error fetching roles:', error);
       toast({
@@ -143,19 +108,16 @@ export const RoleManagement = () => {
       const token = getToken();
       if (!token) return;
 
-      const response = await fetch('/api/vendors', {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
+      const response = await fetch(`${API_BASE_URL}/api/vendors`, {
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
       if (!response.ok) {
         console.error('Error fetching vendors');
-        toast({
-          title: "Error",
-          description: "Failed to fetch vendors",
-          variant: "destructive",
-        });
         return;
       }
 
@@ -164,11 +126,43 @@ export const RoleManagement = () => {
       setVendors(data.vendors || []);
     } catch (error) {
       console.error('Unexpected error fetching vendors:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch vendors",
-        variant: "destructive",
+    }
+  };
+
+  const fetchUserProfiles = async () => {
+    try {
+      console.log("Fetching user profiles for role management...");
+      
+      const token = getToken();
+      if (!token) return {};
+
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
+      const response = await fetch(`${API_BASE_URL}/api/users/profiles`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       });
+
+      if (!response.ok) {
+        console.error('Error fetching user profiles');
+        return {};
+      }
+
+      const data = await response.json();
+      console.log("User profiles fetched for role management:", data);
+      const profileMap: {[key: string]: string} = {};
+      data.profiles?.forEach((profile: any) => {
+        const userId = profile._id || profile.id;
+        const displayName = profile.full_name || profile.name || profile.contact_person || profile.email || 'Unknown';
+        profileMap[userId] = displayName;
+      });
+      
+      setUserProfiles(profileMap);
+      return profileMap;
+    } catch (error) {
+      console.error('Unexpected error fetching user profiles:', error);
+      return {};
     }
   };
 
@@ -213,7 +207,8 @@ export const RoleManagement = () => {
       const token = getToken();
       if (!token) throw new Error('Authentication required');
 
-      const response = await fetch('/api/users/roles', {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
+      const response = await fetch(`${API_BASE_URL}/api/users/roles`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -240,8 +235,7 @@ export const RoleManagement = () => {
       setSelectedRole("");
       setSelectedVendor("");
       setDialogOpen(false);
-      fetchRoles();
-      fetchUserProfiles();
+      await Promise.all([fetchRoles(), fetchUserProfiles()]);
     } catch (error: any) {
       console.error('Error adding role:', error);
       toast({
@@ -264,10 +258,12 @@ export const RoleManagement = () => {
       const token = getToken();
       if (!token) throw new Error('Authentication required');
 
-      const response = await fetch(`/api/users/roles/${roleId}`, {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://13.235.100.18:3001';
+      const response = await fetch(`${API_BASE_URL}/api/users/roles/${roleId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
@@ -281,8 +277,7 @@ export const RoleManagement = () => {
         description: "Role has been removed successfully.",
       });
 
-      fetchRoles();
-      fetchUserProfiles();
+      await Promise.all([fetchRoles(), fetchUserProfiles()]);
     } catch (error) {
       console.error('Error removing role:', error);
       toast({
